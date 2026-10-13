@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=cl2metal
+Comment=Terminal + SSH client
+Exec=@EXEC@ %U
+Icon=cl2metal
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=terminal;ssh;shell;
+StartupWMClass=cl2metal

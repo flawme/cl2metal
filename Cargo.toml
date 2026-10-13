@@ -1,0 +1,44 @@
+[package]
+name = "cl2metal"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ab_glyph = "0.2.32"
+alacritty_terminal = "0.26.0"
+anyhow = "1.0.104"
+arboard = "3.6"
+bytemuck = { version = "1.25.2", features = ["derive"] }
+dirs = "7.0.0"
+eframe = "0.36.2"
+egui = "0.36.2"
+egui-wgpu = "0.36.2"
+egui-winit = "0.36.2"
+env_logger = "0.11.11"
+flume = "0.12.0"
+fontdb = "0.24.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
+keyring = "4.2.0"
+log = "0.4.34"
+portable-pty = "0.9.0"
+regex = "1"
+russh = "0.64.1"
+russh-sftp = "3.0.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1"
+syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+tokio = { version = "1.53.2", features = ["full"] }
+toml = "1.1.8"
+trash = "5.2.9"
+unicode-width = "0.2"
+wgpu = "30.0.1"
+winit = "0.30.13"
+
+# Windows: system and process counters for the `:info` panel.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
