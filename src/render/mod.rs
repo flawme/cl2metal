@@ -111,6 +111,10 @@ pub fn build_frame(
     cursor_opts: CursorOpts,
     search: Option<&SearchCells>,
     transparent_default_bg: bool,
+    // Sub-line scroll shift in pixels: the whole frame moves up by this,
+    // and one row past the viewport is kept so the bottom edge stays
+    // filled while the scroll glides.
+    scroll_px: f32,
 ) -> TermFrame {
     let mut frame = TermFrame::default();
     let content = term.term.renderable_content();
@@ -125,12 +129,14 @@ pub fn build_frame(
 
     let cell_pos = |point: Point| -> Option<[f32; 2]> {
         let row = point.line.0 + display_offset as i32;
-        if row < 0 || row >= rows as i32 {
+        // One row past the viewport is kept: the sub-line shift pulls it
+        // into view at the bottom edge.
+        if row < 0 || row > rows as i32 {
             return None;
         }
         Some([
             origin_px[0] + point.column.0 as f32 * cw,
-            origin_px[1] + row as f32 * ch,
+            origin_px[1] + row as f32 * ch - scroll_px,
         ])
     };
 

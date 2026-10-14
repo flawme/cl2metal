@@ -198,6 +198,70 @@ pub enum MarkKind {
     Done,
 }
 
+/// Sub-line scroll state for one pane.
+///
+/// The wheel accumulates fractional lines and the drawn offset eases toward
+/// the target, so a burst of events glides instead of jumping. The integer
+/// part goes to the terminal's display offset; the fraction becomes a pixel
+/// shift at render time.
+#[derive(Default)]
+pub struct ScrollState {
+    /// Where the scroll is headed, in lines (0 = live, up = older).
+    target: f32,
+    /// Where it is drawn this frame, eased toward the target.
+    display: f32,
+}
+
+impl ScrollState {
+    /// Add wheel lines (fractional; positive = older).
+    pub fn wheel(&mut self, lines: f32) {
+        self.target += lines;
+    }
+
+    /// Head for an offset (keyboard paging): eased, not snapped.
+    pub fn jump(&mut self, lines: f32) {
+        self.target = lines;
+    }
+
+    /// Snap straight to an offset (typing returns to the live output).
+    pub fn snap(&mut self, lines: f32) {
+        self.target = lines;
+        self.display = lines;
+    }
+
+    /// Ease toward the target. Returns true while still moving.
+    pub fn ease(&mut self, dt: f32) -> bool {
+        let k = 1.0 - (-dt * 26.0).exp();
+        self.display += (self.target - self.display) * k;
+        if (self.target - self.display).abs() < 0.005 {
+            self.display = self.target;
+            false
+        } else {
+            true
+        }
+    }
+
+    /// Pull the state back to what the terminal actually reached, when a
+    /// request ran past the history bounds. Without this the easing would
+    /// chase an unreachable target forever.
+    pub fn settle_to(&mut self, actual: f32) {
+        if self.target > actual + 0.5 {
+            self.target = actual;
+        }
+        if self.display > actual + 0.5 {
+            self.display = actual;
+        }
+    }
+
+    /// The integer offset to show, and the pixel shift that goes with it:
+    /// the frame is drawn at `base` and shifted up by the returned pixels,
+    /// which is what makes the motion sub-line.
+    pub fn base_and_shift(&self, cell_h: f32) -> (i32, f32) {
+        let base = self.display.ceil();
+        (base as i32, (base - self.display) * cell_h)
+    }
+}
+
 /// The parse/render state of one tab.
 pub struct TermCore {
     pub term: Term<Listener>,
@@ -216,6 +280,9 @@ pub struct TermCore {
     responses: Vec<Vec<u8>>,
     /// The theme's background colour, for the OSC 11 reply.
     bg_rgb: [u8; 3],
+    /// Sub-line scroll state: the wheel's fractional target and the eased
+    /// drawn offset.
+    pub scroll: ScrollState,
 }
 
 /// Marks kept per tab before the oldest are dropped.
@@ -252,6 +319,7 @@ impl TermCore {
             progress_state: String::new(),
             responses: Vec::new(),
             bg_rgb: [30, 30, 30],
+            scroll: ScrollState::default(),
         }
     }
 
@@ -638,6 +706,39 @@ mod tests {
             screen_text(&core).trim().is_empty(),
             "nothing of the queries was drawn"
         );
+    }
+
+    #[test]
+    fn the_scroll_eases_and_shifts_sub_line() {
+        let mut s = ScrollState::default();
+        s.wheel(2.5);
+        // Eases toward the target rather than jumping.
+        assert!(s.ease(0.016));
+        let (base, shift) = s.base_and_shift(10.0);
+        assert!((1..=3).contains(&base), "base {base}");
+        assert!((0.0..10.0).contains(&shift), "shift {shift}");
+        // Converges.
+        for _ in 0..200 {
+            s.ease(0.016);
+        }
+        let (base, shift) = s.base_and_shift(10.0);
+        assert_eq!(base, 3, "ceil of 2.5");
+        assert!((shift - 5.0).abs() < 0.01, "half a cell: {shift}");
+    }
+
+    #[test]
+    fn a_scroll_past_the_history_settles() {
+        let mut s = ScrollState::default();
+        s.jump(1000.0);
+        for _ in 0..50 {
+            s.ease(0.016);
+        }
+        // The terminal only reached 40: the state settles there instead of
+        // chasing the target forever.
+        s.settle_to(40.0);
+        assert!(!s.ease(0.016), "settled");
+        let (base, _) = s.base_and_shift(10.0);
+        assert_eq!(base, 40);
     }
 
     #[test]

@@ -436,6 +436,13 @@ pub struct App {
     /// Set while a close the user confirmed is being carried out, so the
     /// running-process check does not ask a second time on the way out.
     force_close: bool,
+    /// When an image started hovering over the window: the background
+    /// countdown. `None` = no countdown running.
+    bg_drop_at: Option<f64>,
+    /// Set when the countdown just applied the background: the release that
+    /// follows is the tail of that same drag and must not also type the
+    /// path into the terminal.
+    bg_drop_done: bool,
 
     selecting: bool,
     mouse_held: Option<MouseBtn>,
@@ -726,6 +733,8 @@ impl App {
             prompts: VecDeque::new(),
             prompt_text: String::new(),
             force_close: false,
+            bg_drop_at: None,
+            bg_drop_done: false,
             selecting: false,
             mouse_held: None,
             last_click: None,
@@ -1013,25 +1022,32 @@ impl eframe::App for App {
 
         self.handle_input(ctx);
 
-        // Files dropped on the window from the desktop: the editor opens them.
-        // Images are the wallpaper's — dropping one anywhere sets the
-        // background, which `handle_dropped_files` takes care of.
-        if self.view == View::Editor {
-            let dropped: Vec<std::path::PathBuf> = ctx.input(|i| {
-                i.raw
-                    .dropped_files
-                    .iter()
-                    // A drop without a path (text, or an in-app drag) has an
-                    // empty one.
-                    .filter(|f| !f.path().as_os_str().is_empty())
-                    .map(|f| f.path().to_path_buf())
-                    .filter(|p| !crate::app::background::is_image_path(p))
-                    .collect()
-            });
-            for path in dropped {
-                self.editor.open_path(&path);
+        // Ease any pane scrolls in flight, and hand the terminal the integer
+        // part; the fraction rides to the renderer as a pixel shift.
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            for pane in &mut tab.panes {
+                let moving = pane.core.scroll.ease(self.frame_dt);
+                let (base, _) = pane.core.scroll.base_and_shift(1.0);
+                let current = pane.core.term.grid().display_offset() as i32;
+                if base != current {
+                    pane.core.term.scroll_display(Scroll::Delta(base - current));
+                    let after = pane.core.term.grid().display_offset() as i32;
+                    if after != base {
+                        // The terminal clamped: the target is past the
+                        // history, so settle instead of chasing it.
+                        pane.core.scroll.settle_to(after as f32);
+                    }
+                }
+                if moving {
+                    ctx.request_repaint();
+                }
             }
         }
+
+        // An image hovering over the window counts down to becoming the
+        // background; a drop before it finishes goes to the terminal or the
+        // editor instead (`handle_dropped_files`).
+        self.tick_background_drop(ctx);
 
         // The editor's requests to the application (view switches, remote
         // saves, settings) are serviced every frame, whichever view is in front.
@@ -1160,6 +1176,8 @@ impl eframe::App for App {
 
         // --- status toast: the last thing drawn, so nothing can hide it ---
         self.draw_toast(&ctx);
+        // The background-drop countdown rides with it.
+        self.draw_bg_drop(&ctx);
 
         // --- scrollback search bar ---
         if let Some(mut state) = self.search.take() {

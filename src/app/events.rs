@@ -5,32 +5,127 @@ use super::background::is_image_path;
 use super::eggs::EasterEgg;
 use super::*;
 
+/// Quote a path for the shell, so a dropped file with spaces lands as one
+/// word at the prompt.
+pub(crate) fn shell_quote(path: &std::path::Path) -> String {
+    let text = path.to_string_lossy();
+    let plain = text
+        .chars()
+        .all(|c| c.is_alphanumeric() || "._-/@:+=".contains(c));
+    if plain {
+        text.into_owned()
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
+}
+
 impl App {
+    /// How long an image must hover over the window before it becomes the
+    /// background. The delay is what lets one drag serve two purposes.
+    pub(crate) const BG_DROP_SECS: f64 = 3.0;
+
+    /// An image dragged over the window: a countdown runs before it becomes
+    /// the background.
+    ///
+    /// The delay is what lets the same drag serve two purposes: hold the
+    /// image over the window for three seconds and it becomes the wallpaper;
+    /// drop it sooner — on the terminal, into an agent's prompt — and it goes
+    /// there instead. Moving it off the window cancels.
+    pub(crate) fn tick_background_drop(&mut self, ctx: &egui::Context) {
+        if !matches!(self.overlay, Overlay::None) {
+            self.bg_drop_at = None;
+            return;
+        }
+        let hovered = ctx.input(|i| i.raw.hovered_files.clone());
+        let image = hovered
+            .iter()
+            .filter_map(|f| f.path.clone())
+            .find(|p| is_image_path(p));
+        let Some(path) = image else {
+            // Moved away, or nothing hovering: cancel.
+            self.bg_drop_at = None;
+            return;
+        };
+        if self.bg_drop_at.is_none() {
+            // A fresh hover: a previous background application is history.
+            self.bg_drop_done = false;
+        }
+        let at = *self.bg_drop_at.get_or_insert(self.now);
+        if self.now - at >= Self::BG_DROP_SECS {
+            self.bg_drop_at = None;
+            self.bg_drop_done = true;
+            self.set_background_image(&path, ctx);
+        } else {
+            // Keep the countdown animating.
+            ctx.request_repaint();
+        }
+    }
+
+    /// Make an image the background, and say so.
+    fn set_background_image(&mut self, path: &std::path::Path, ctx: &egui::Context) {
+        let path = path.to_string_lossy().into_owned();
+        let name = std::path::Path::new(&path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.clone());
+        log::info!("background image set: {path}");
+        self.config.background_image = Some(path);
+        self.sync_background(ctx);
+        self.refresh_ui_alpha(ctx);
+        if let Err(e) = self.config.save() {
+            log::warn!("saving config after a background change: {e:#}");
+        }
+        self.toast = Some((format!("Background image: {name}"), self.now));
+    }
+
+    /// Files dropped on the window.
+    ///
+    /// On the terminal a drop types the file's path at the cursor — that is
+    /// how an agent's prompt receives an attachment. In the editor,
+    /// non-images open; an image is the wallpaper's, and the hover countdown
+    /// above is how it gets there.
     pub(crate) fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         if dropped.is_empty() {
+            return;
+        }
+        // Any drop ends the background countdown: the file went somewhere.
+        self.bg_drop_at = None;
+        // The release that completed a background countdown is the tail of
+        // that same drag: it must not also type the path.
+        let consumed = self.bg_drop_done;
+        self.bg_drop_done = false;
+        if consumed {
             return;
         }
         // The settings modal owns the config while it is open.
         if !matches!(self.overlay, Overlay::None) {
             return;
         }
-        let Some(path) = dropped.iter().map(|f| f.path()).find(|p| is_image_path(p)) else {
+        let paths: Vec<std::path::PathBuf> = dropped
+            .iter()
+            .map(|f| f.path().to_path_buf())
+            .filter(|p| !p.as_os_str().is_empty())
+            .collect();
+        if paths.is_empty() {
             return;
-        };
-        let path = path.to_string_lossy().into_owned();
-        let name = std::path::Path::new(&path)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.clone());
-        log::info!("background image dropped: {path}");
-        self.config.background_image = Some(path);
-        self.sync_background(ctx);
-        self.refresh_ui_alpha(ctx);
-        if let Err(e) = self.config.save() {
-            log::warn!("saving config after an image drop: {e:#}");
         }
-        self.toast = Some((format!("Background image: {name}"), self.now));
+        match self.view {
+            View::Terminal => {
+                let mut text = String::new();
+                for path in &paths {
+                    text.push_str(&shell_quote(path));
+                    text.push(' ');
+                }
+                log::info!("dropped {} file(s) at the prompt", paths.len());
+                self.send_input(text.into_bytes());
+            }
+            View::Editor => {
+                for path in paths.iter().filter(|p| !is_image_path(p)) {
+                    self.editor.open_path(path);
+                }
+            }
+        }
     }
 
     pub(crate) fn handle_input(&mut self, ctx: &egui::Context) {
@@ -465,16 +560,26 @@ impl App {
     /// Scroll the active tab's viewport.
     pub(crate) fn scroll_terminal(&mut self, scroll: Scroll) {
         if let Some(tab) = self.tabs.get_mut(self.active) {
-            tab.core.term.scroll_display(scroll);
+            let rows = tab.core.rows() as f32;
+            match scroll {
+                Scroll::Delta(n) => tab.core.scroll.wheel(n as f32),
+                Scroll::PageUp => tab.core.scroll.wheel(rows),
+                Scroll::PageDown => tab.core.scroll.wheel(-rows),
+                // A huge target: the terminal clamps at the history's top
+                // and the state settles there.
+                Scroll::Top => tab.core.scroll.jump(f32::MAX / 4.0),
+                Scroll::Bottom => tab.core.scroll.snap(0.0),
+            }
         }
     }
 
-    /// Scroll one pane's viewport, without moving the focus.
-    pub(crate) fn scroll_pane(&mut self, pane_i: usize, scroll: Scroll) {
+    /// Scroll one pane's viewport, without moving the focus. `lines` is
+    /// fractional: the easing glides through them.
+    pub(crate) fn scroll_pane(&mut self, pane_i: usize, lines: f32) {
         if let Some(tab) = self.tabs.get_mut(self.active)
             && let Some(pane) = tab.panes.get_mut(pane_i)
         {
-            pane.core.term.scroll_display(scroll);
+            pane.core.scroll.wheel(lines);
         }
     }
 
@@ -1072,7 +1177,9 @@ impl App {
             egui::MouseWheelUnit::Point => delta.y / cell_h,
             _ => delta.y,
         };
-        let lines = lines.round().max(1.0) * if dir_up { 1.0 } else { -1.0 };
+        // Fractional on purpose: the easing glides through the lines, so a
+        // burst of events does not jump.
+        let lines = lines.abs() * if dir_up { 1.0 } else { -1.0 };
         if lines != 0.0 {
             let pane_i = self
                 .pane_layouts
@@ -1080,7 +1187,7 @@ impl App {
                 .find(|(_, l)| l.rect.contains(pos))
                 .map(|(i, _)| *i)
                 .unwrap_or(self.tabs[self.active].active_pane);
-            self.scroll_pane(pane_i, Scroll::Delta(lines as i32));
+            self.scroll_pane(pane_i, lines);
             ctx.request_repaint();
         }
     }

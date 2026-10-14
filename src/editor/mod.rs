@@ -216,6 +216,9 @@ pub(crate) struct Editor {
     pub(crate) last_edit_at: f64,
     /// The file tree's scroll offset.
     pub(crate) tree_scroll: f32,
+    /// The tree's drawn offset, eased toward `tree_scroll` so the wheel
+    /// glides instead of jumping.
+    pub(crate) tree_scroll_display: f32,
     /// Frame time, handed in by the app.
     pub(crate) now: f64,
     /// Seconds since the previous frame, for easing.
@@ -262,6 +265,7 @@ impl Editor {
             last_external_check: 0.0,
             last_edit_at: 0.0,
             tree_scroll: 0.0,
+            tree_scroll_display: 0.0,
             now: 0.0,
             frame_dt: 0.0,
             wants_terminal: false,

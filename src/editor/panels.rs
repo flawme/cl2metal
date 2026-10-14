@@ -118,15 +118,34 @@ impl Editor {
             .tree_scroll
             .min(self.tree.rows().len().saturating_sub(rows) as f32);
         self.tree_scroll = scroll;
-        let top = scroll.floor() as usize;
+        // Ease the drawn offset toward the target, so the wheel glides.
+        let dt = self.frame_dt.clamp(0.0, 0.1);
+        let k = 1.0 - (-dt * 26.0).exp();
+        self.tree_scroll_display += (scroll - self.tree_scroll_display) * k;
+        if (self.tree_scroll_display - scroll).abs() < 0.005 {
+            self.tree_scroll_display = scroll;
+        } else {
+            ui.ctx().request_repaint();
+        }
+        let top = self.tree_scroll_display.floor().max(0.0) as usize;
+        let frac = (self.tree_scroll_display - top as f32).clamp(0.0, 1.0);
 
         let mut clicked: Option<(std::path::PathBuf, bool)> = None;
         // A drag in flight: its source, and the folder row under the pointer.
         let dragging = self.tree.drag.clone();
         let mut started: Option<std::path::PathBuf> = None;
         let mut hover_target: Option<std::path::PathBuf> = None;
-        for (i, row) in self.tree.rows().iter().enumerate().skip(top).take(rows) {
-            let y = list.min.y + (i - top) as f32 * row_h;
+        // One row past the viewport is kept: the sub-line shift pulls it in
+        // at the bottom edge.
+        for (i, row) in self
+            .tree
+            .rows()
+            .iter()
+            .enumerate()
+            .skip(top)
+            .take(rows + 1)
+        {
+            let y = list.min.y + (i - top) as f32 * row_h - frac * row_h;
             let row_rect = egui::Rect::from_min_size(
                 egui::pos2(list.min.x, y),
                 egui::vec2(list.width(), row_h),

@@ -2,7 +2,22 @@
 
 use super::background::{bg_alpha_for, load_image, panel_alpha_for, read_cache, ui_alpha_for, write_cache};
 use super::eggs::{EasterEgg, hidden_eggs, hue_rotate, matrix_char};
+use super::events::shell_quote;
 use super::*;
+
+#[test]
+fn dropped_paths_are_quoted_for_the_shell() {
+    use std::path::Path;
+    assert_eq!(shell_quote(Path::new("/tmp/plain.png")), "/tmp/plain.png");
+    assert_eq!(
+        shell_quote(Path::new("/tmp/my file.png")),
+        "'/tmp/my file.png'"
+    );
+    assert_eq!(
+        shell_quote(Path::new("/tmp/it's.png")),
+        "'/tmp/it'\\''s.png'"
+    );
+}
 
 #[test]
 fn ease_out_cubic_is_normalised_and_monotonic() {

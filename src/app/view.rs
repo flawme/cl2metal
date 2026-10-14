@@ -335,6 +335,12 @@ impl App {
                                         select = Some(i);
                                     }
                                 }
+                                // Middle-click closes the tab, like a browser.
+                                // It goes through the same close path, so a
+                                // running process still asks first.
+                                if resp.clicked_by(egui::PointerButton::Middle) {
+                                    close = Some(i);
+                                }
                                 if resp.double_clicked() {
                                     rename = Some(i);
                                 }
@@ -494,6 +500,76 @@ impl App {
         );
         painter.galley(rect.min + pad, galley, toast_color);
         // Keep the fade animating while it is on screen.
+        ctx.request_repaint();
+    }
+
+    /// The countdown an image hovering over the window runs before it
+    /// becomes the background.
+    pub(crate) fn draw_bg_drop(&mut self, ctx: &egui::Context) {
+        let Some(at) = self.bg_drop_at else {
+            return;
+        };
+        let left = (Self::BG_DROP_SECS - (self.now - at)).max(0.0);
+        let full = ctx.content_rect();
+        let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("cl2metal-bg-drop"));
+        let painter = ctx.layer_painter(layer);
+        let title = painter.layout_no_wrap(
+            format!("Background image in {left:.1}s"),
+            egui::FontId::new(12.5, egui::FontFamily::Proportional),
+            color32(self.theme.ui.text),
+        );
+        let hint = painter.layout_no_wrap(
+            "drop it on the terminal to attach instead".to_owned(),
+            egui::FontId::new(11.0, egui::FontFamily::Proportional),
+            color32(self.theme.ui.text_dim),
+        );
+        let pad = egui::vec2(14.0, 10.0);
+        let title_h = title.size().y;
+        let w = title.size().x.max(hint.size().x) + pad.x * 2.0;
+        let h = title_h + hint.size().y + 12.0 + pad.y * 2.0;
+        let rect = egui::Rect::from_min_size(
+            egui::pos2(full.center().x - w * 0.5, full.min.y + 44.0),
+            egui::vec2(w, h),
+        );
+        painter.rect_filled(
+            rect,
+            10.0,
+            ui::with_alpha(
+                color32(self.theme.ui.panel_bg),
+                0.96 * self.theme.ui_alpha,
+            ),
+        );
+        painter.rect_stroke(
+            rect,
+            10.0,
+            egui::Stroke::new(1.0, color32(self.theme.ui.border)),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(rect.min + pad, title, color32(self.theme.ui.text));
+        painter.galley(
+            rect.min + pad + egui::vec2(0.0, title_h + 4.0),
+            hint,
+            color32(self.theme.ui.text_dim),
+        );
+        // The progress bar.
+        let track = egui::Rect::from_min_size(
+            egui::pos2(rect.min.x + pad.x, rect.max.y - pad.y - 3.0),
+            egui::vec2(rect.width() - pad.x * 2.0, 3.0),
+        );
+        let done = (1.0 - left / Self::BG_DROP_SECS).clamp(0.0, 1.0) as f32;
+        painter.rect_filled(
+            track,
+            1.5,
+            ui::with_alpha(color32(self.theme.ui.border), 0.6),
+        );
+        painter.rect_filled(
+            egui::Rect::from_min_size(
+                track.min,
+                egui::vec2(track.width() * done, track.height()),
+            ),
+            1.5,
+            color32(self.theme.ui.accent),
+        );
         ctx.request_repaint();
     }
 
@@ -676,6 +752,7 @@ impl App {
             };
             let frame = {
                 let pane = &self.tabs[self.active].panes[*pane_i];
+                let (_, scroll_px) = pane.core.scroll.base_and_shift(l.cell_px[1]);
                 render::build_frame(
                     &pane.core,
                     &mut self.atlas,
@@ -693,6 +770,7 @@ impl App {
                     // repaint it as a separate, darker rectangle below the tab
                     // strip.
                     true,
+                    scroll_px,
                 )
             };
             let callback = TerminalCallback::new(
