@@ -56,13 +56,15 @@ impl App {
         )
         .map_err(|e| format!("Failed to spawn shell: {e:#}"))?;
         let (term_tx, term_rx) = flume::unbounded();
-        let core = TermCore::new(
+        let mut core = TermCore::new(
             cols,
             rows,
             self.config.scrollback,
             cursor_style(&self.config),
             Listener::new(term_tx),
         );
+        // The OSC 11 reply should match what the text actually sits on.
+        core.set_background(self.theme.bg);
         let log = self.open_log(&shell_label(&self.config.shell));
         Ok(Pane {
             kind: TabKind::Local,
@@ -96,13 +98,15 @@ impl App {
         let (client_tx, msg_rx) =
             ssh::spawn(params, self.waker.clone()).map_err(|e| format!("SSH failed: {e:#}"))?;
         let (term_tx, term_rx) = flume::unbounded();
-        let core = TermCore::new(
+        let mut core = TermCore::new(
             cols,
             rows,
             self.config.scrollback,
             cursor_style(&self.config),
             Listener::new(term_tx),
         );
+        // The OSC 11 reply should match what the text actually sits on.
+        core.set_background(self.theme.bg);
         let log = self.open_log(&format!("{}@{}", profile.user, profile.host));
         Ok(Pane {
             kind: TabKind::Ssh,
@@ -366,6 +370,38 @@ impl App {
     }
 
     /// Close the focused pane. The last pane closes the tab instead.
+    /// The processes still running in a pane, for the close confirmation.
+    ///
+    /// A local pane asks its shell's living children — the VS Code
+    /// `confirmOnKill` model, where an idle shell never asks and `npm` or
+    /// an editor always does. An SSH pane counts as running while its
+    /// session is alive: the work is on the far side, where `/proc` cannot
+    /// see it, and closing would drop the connection.
+    pub(crate) fn pane_jobs(&self, pane: &Pane) -> Vec<String> {
+        if pane.dead.is_some() {
+            return Vec::new();
+        }
+        match pane.kind {
+            TabKind::Ssh => vec!["ssh".to_owned()],
+            TabKind::Local => pane
+                .shell_pid
+                .map_or_else(Vec::new, crate::term::local::running_children),
+        }
+    }
+
+    /// Every process running anywhere in the window, for the window close.
+    pub(crate) fn all_jobs(&self) -> Vec<String> {
+        let mut jobs: Vec<String> = self
+            .tabs
+            .iter()
+            .flat_map(|tab| tab.panes.iter())
+            .flat_map(|pane| self.pane_jobs(pane))
+            .collect();
+        jobs.sort();
+        jobs.dedup();
+        jobs
+    }
+
     pub(crate) fn close_pane(&mut self, ctx: &egui::Context) {
         let Some(tab) = self.tabs.get(self.active) else {
             return;
@@ -376,6 +412,20 @@ impl App {
             return;
         }
         let target = tab.active_pane;
+        // A pane still doing work asks first.
+        if !self.force_close {
+            let jobs = self.pane_jobs(&self.tabs[self.active].panes[target]);
+            if !jobs.is_empty() {
+                self.overlay = Overlay::CloseConfirm {
+                    scope: CloseScope::Pane {
+                        tab: self.active,
+                        pane: target,
+                    },
+                    jobs,
+                };
+                return;
+            }
+        }
         let tab = &mut self.tabs[self.active];
         let _ = tab.panes[target].client_tx.send(ClientMsg::Close);
         tab.panes.remove(target);
@@ -420,6 +470,23 @@ impl App {
     pub(crate) fn close_tab(&mut self, i: usize, ctx: &egui::Context, reason: &str) {
         if i >= self.tabs.len() {
             return;
+        }
+        // Any pane in the tab still doing work asks first.
+        if !self.force_close {
+            let mut jobs: Vec<String> = self.tabs[i]
+                .panes
+                .iter()
+                .flat_map(|pane| self.pane_jobs(pane))
+                .collect();
+            jobs.sort();
+            jobs.dedup();
+            if !jobs.is_empty() {
+                self.overlay = Overlay::CloseConfirm {
+                    scope: CloseScope::Tab(i),
+                    jobs,
+                };
+                return;
+            }
         }
         log::info!(
             "close_tab({i}) reason={reason} tabs_before={} active={}",
@@ -653,6 +720,12 @@ impl App {
                 }
                 let pane = &mut self.tabs[tab_i].panes[pane_i];
                 pane.core.feed(&bytes);
+                // Capability queries the program asked: answer them on the
+                // same channel the input goes out on — the local pty or the
+                // SSH session.
+                for response in pane.core.take_responses() {
+                    let _ = pane.client_tx.send(ClientMsg::Input(response));
+                }
                 pane.ready = true;
                 pane.reconnect_attempts = 0;
                 if let Some(log) = pane.log.as_mut() {

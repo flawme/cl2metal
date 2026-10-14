@@ -177,6 +177,76 @@ pub fn spawn(
     Ok((client_tx, msg_rx, shell_pid))
 }
 
+/// The names of the processes still running under a shell, if any.
+///
+/// This is what the close confirmation asks about: a pane whose shell has
+/// living children — `npm`, an editor, an ssh session — is doing work, and
+/// closing the pane would kill that work. A zombie does not count: it has
+/// exited and is only waiting to be reaped.
+#[cfg(target_os = "linux")]
+pub fn running_children(pid: u32) -> Vec<String> {
+    use std::collections::HashMap;
+    // One pass over /proc builds the parent map, then a walk down from the
+    // shell collects its living descendants.
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    let mut names: HashMap<u32, String> = HashMap::new();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let Ok(child_pid) = name.parse::<u32>() else {
+            continue;
+        };
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{child_pid}/stat")) else {
+            continue;
+        };
+        // `stat` reads `pid (comm) state ppid ...`, and comm may itself
+        // contain spaces and parentheses — so split after the LAST ')'.
+        let Some((head, tail)) = stat.rsplit_once(')') else {
+            continue;
+        };
+        let mut fields = tail.split_whitespace();
+        let state = fields.next().unwrap_or("");
+        let Some(ppid) = fields.next().and_then(|p| p.parse::<u32>().ok()) else {
+            continue;
+        };
+        if state == "Z" {
+            continue;
+        }
+        let comm = head
+            .split_once('(')
+            .map(|(_, c)| c.to_owned())
+            .unwrap_or_default();
+        names.insert(child_pid, comm);
+        children.entry(ppid).or_default().push(child_pid);
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut stack = vec![pid];
+    while let Some(p) = stack.pop() {
+        let Some(kids) = children.get(&p) else {
+            continue;
+        };
+        for &kid in kids {
+            if let Some(name) = names.get(&kid)
+                && !out.iter().any(|n| n == name)
+            {
+                out.push(name.clone());
+            }
+            stack.push(kid);
+        }
+    }
+    out
+}
+
+/// Without `/proc` there is nothing to walk; nothing ever blocks a close.
+#[cfg(not(target_os = "linux"))]
+pub fn running_children(_pid: u32) -> Vec<String> {
+    Vec::new()
+}
+
 /// The working directory of a shell process, when it can be read.
 ///
 /// This is what lets the editor's file tree follow `cd`: the shell's own
@@ -203,6 +273,32 @@ mod tests {
         assert_eq!(
             shell_cwd(std::process::id()),
             std::env::current_dir().ok()
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn a_shell_with_a_running_child_says_so() {
+        // The test runner stands in for the shell: a child it spawns is
+        // exactly what the close confirmation must see.
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        let names = running_children(std::process::id());
+        assert!(
+            names.iter().any(|n| n == "sleep"),
+            "the child is seen: {names:?}"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+        // A reaped child is gone; nothing else runs under the test runner.
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        let names = running_children(std::process::id());
+        assert!(
+            !names.iter().any(|n| n == "sleep"),
+            "the reaped child is gone: {names:?}"
         );
     }
 

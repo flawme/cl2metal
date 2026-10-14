@@ -12,7 +12,7 @@ use crate::term::{
     ssh::SshParams,
 };
 use crate::theme::{self, Theme};
-use crate::ui::{self, BAR_H, Overlay, PaletteAction, PromptKind, SshPrompt, color32};
+use crate::ui::{self, BAR_H, CloseScope, Overlay, PaletteAction, PromptKind, SshPrompt, color32};
 use alacritty_terminal::{
     event::WindowSize,
     grid::{Dimensions, Scroll},
@@ -433,6 +433,9 @@ pub struct App {
     overlay: Overlay,
     prompts: VecDeque<SshPrompt>,
     prompt_text: String,
+    /// Set while a close the user confirmed is being carried out, so the
+    /// running-process check does not ask a second time on the way out.
+    force_close: bool,
 
     selecting: bool,
     mouse_held: Option<MouseBtn>,
@@ -722,6 +725,7 @@ impl App {
             overlay: Overlay::None,
             prompts: VecDeque::new(),
             prompt_text: String::new(),
+            force_close: false,
             selecting: false,
             mouse_held: None,
             last_click: None,
@@ -992,6 +996,20 @@ impl eframe::App for App {
 
         // Dropping an image onto the window sets it as the background.
         self.handle_dropped_files(ctx);
+
+        // The window's X while work is running: ask before the app goes.
+        // `CancelClose` takes the close back; confirming sends it again with
+        // `force_close` set, so it goes through this time.
+        if ctx.input(|i| i.viewport().close_requested()) && !self.force_close {
+            let jobs = self.all_jobs();
+            if !jobs.is_empty() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.overlay = Overlay::CloseConfirm {
+                    scope: CloseScope::App,
+                    jobs,
+                };
+            }
+        }
 
         self.handle_input(ctx);
 

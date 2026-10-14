@@ -46,6 +46,11 @@ pub enum Overlay {
         path: std::path::PathBuf,
         texture: egui::TextureHandle,
     },
+    /// Work is still running where a close was asked for: confirm first.
+    CloseConfirm {
+        scope: CloseScope,
+        jobs: Vec<String>,
+    },
     /// Rename a tab.
     Rename {
         tab: usize,
@@ -69,6 +74,15 @@ pub enum Overlay {
         recording: Option<String>,
         error: Option<String>,
     },
+}
+
+/// What a close confirmation is about to close.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum CloseScope {
+    Pane { tab: usize, pane: usize },
+    Tab(usize),
+    /// The whole window.
+    App,
 }
 
 /// An interactive SSH question awaiting the user's answer.
@@ -1345,6 +1359,54 @@ pub fn show_image(
     );
     ui.interact(screen, egui::Id::new("cl2metal-image-view"), egui::Sense::click())
         .clicked()
+}
+
+// ---------------------------------------------------------------------------
+// Close confirmation
+// ---------------------------------------------------------------------------
+
+/// Draw the "work is still running — close anyway?" question.
+///
+/// Returns `(cancel, close_anyway)`. The names come from the pane's living
+/// children (VS Code's `confirmOnKill` model), so an idle shell never
+/// raises it and `npm` or an editor always does.
+pub fn show_close_confirm(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    jobs: &[String],
+    scope: &CloseScope,
+) -> (bool, bool) {
+    let mut cancel = false;
+    let mut close = false;
+    let what = match scope {
+        CloseScope::Pane { .. } => "this pane",
+        CloseScope::Tab(_) => "this tab",
+        CloseScope::App => "the window",
+    };
+    modal_frame(ui, theme, "Close anyway?", |ui| {
+        ui.label(
+            egui::RichText::new(format!("{} is still running in {what}.", jobs.join(", ")))
+                .size(12.5)
+                .color(color32(theme.ui.text)),
+        );
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new("Closing kills it.")
+                .size(11.5)
+                .color(color32(theme.ui.text_dim)),
+        );
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if primary_button(ui, theme, "Close anyway", 140.0).clicked() || enter {
+                close = true;
+            }
+            if secondary_button(ui, theme, "Cancel", 88.0).clicked() {
+                cancel = true;
+            }
+        });
+    });
+    (cancel, close)
 }
 
 // ---------------------------------------------------------------------------

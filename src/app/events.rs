@@ -111,8 +111,8 @@ impl App {
             return;
         }
 
-        // 3. Settings / connect / rename / profile / keybindings / images:
-        //    Esc closes.
+        // 3. Settings / connect / rename / profile / keybindings / images /
+        //    close confirmations: Esc closes.
         if matches!(
             self.overlay,
             Overlay::Settings { .. }
@@ -122,6 +122,7 @@ impl App {
                 | Overlay::Keybindings { .. }
                 | Overlay::ViewImage { .. }
                 | Overlay::Image { .. }
+                | Overlay::CloseConfirm { .. }
         ) {
             let esc = events.iter().any(|ev| {
                 matches!(
@@ -135,6 +136,9 @@ impl App {
             });
             if esc {
                 self.revert_settings(ctx);
+                // A cancelled close confirmation must not leave the next
+                // close forced through.
+                self.force_close = false;
                 self.overlay = Overlay::None;
             }
             return;

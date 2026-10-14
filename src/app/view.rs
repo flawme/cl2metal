@@ -1000,6 +1000,7 @@ impl App {
         let mut action: Option<PaletteAction> = None;
         let mut connect: Option<String> = None;
         let mut view_image: Option<String> = None;
+        let mut close_confirm: Option<CloseScope> = None;
         let mut forget_host: Option<usize> = None;
         let mut rename_submit: Option<(usize, String)> = None;
         let mut paste: Option<String> = None;
@@ -1063,6 +1064,17 @@ impl App {
             }
             Overlay::Image { path, texture } => {
                 if ui::show_image(ui, &theme, path, texture) {
+                    close = true;
+                }
+            }
+            Overlay::CloseConfirm { scope, jobs } => {
+                let (cancel, go) = ui::show_close_confirm(ui, &theme, jobs, scope);
+                if cancel {
+                    self.force_close = false;
+                    close = true;
+                }
+                if go {
+                    close_confirm = Some(*scope);
                     close = true;
                 }
             }
@@ -1163,6 +1175,32 @@ impl App {
                     if let Overlay::ViewImage { error, .. } = &mut self.overlay {
                         *error = Some(e);
                     }
+                }
+            }
+        }
+        if let Some(scope) = close_confirm {
+            match scope {
+                CloseScope::Pane { tab, pane } => {
+                    if tab < self.tabs.len() {
+                        self.force_close = true;
+                        self.tabs[tab].active_pane = pane;
+                        self.active = tab;
+                        self.close_pane(ui.ctx());
+                        self.force_close = false;
+                    }
+                }
+                CloseScope::Tab(i) => {
+                    if i < self.tabs.len() {
+                        self.force_close = true;
+                        self.close_tab(i, ui.ctx(), "confirmed");
+                        self.force_close = false;
+                    }
+                }
+                CloseScope::App => {
+                    // The flag stays set: the close request arrives next
+                    // frame and must go through this time.
+                    self.force_close = true;
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             }
         }

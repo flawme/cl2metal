@@ -194,6 +194,11 @@ pub struct TermCore {
     progress: Option<u8>,
     /// Raw OSC 9;4 state, so error states can be styled differently.
     progress_state: String,
+    /// Answers to terminal capability queries, waiting to be written back to
+    /// the session — the local pty or the SSH channel.
+    responses: Vec<Vec<u8>>,
+    /// The theme's background colour, for the OSC 11 reply.
+    bg_rgb: [u8; 3],
 }
 
 /// Marks kept per tab before the oldest are dropped.
@@ -228,7 +233,21 @@ impl TermCore {
             pending: Vec::new(),
             progress: None,
             progress_state: String::new(),
+            responses: Vec::new(),
+            bg_rgb: [30, 30, 30],
         }
+    }
+
+    /// Tell the core the theme's background, so the OSC 11 reply matches
+    /// what a probing program sees behind the text.
+    pub fn set_background(&mut self, rgb: [u8; 3]) {
+        self.bg_rgb = rgb;
+    }
+
+    /// Take the answers to capability queries, for writing back to the
+    /// session. Drained by the app's pump.
+    pub fn take_responses(&mut self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut self.responses)
     }
 
     /// Apply live config changes: scrollback depth and the default cursor style.
@@ -257,6 +276,27 @@ impl TermCore {
         let mut start = 0;
         let mut i = 0;
         while i < data.len() {
+            // Capability queries (DA1, DA2, XTVERSION, DECRQM): answer them
+            // and keep them off the screen.
+            if data[i] == 0x1b {
+                if let Some((len, response)) = query_at(&data[i..]) {
+                    if start < i {
+                        self.processor.advance(&mut self.term, &data[start..i]);
+                    }
+                    self.responses.push(response);
+                    i += len;
+                    start = i;
+                    continue;
+                }
+                if is_partial_query(&data[i..]) {
+                    // Split across reads: hold the tail back.
+                    if start < i {
+                        self.processor.advance(&mut self.term, &data[start..i]);
+                    }
+                    self.pending = data[i..].to_vec();
+                    return;
+                }
+            }
             let is_osc = data[i] == 0x1b && data.get(i + 1) == Some(&b']');
             if !is_osc {
                 i += 1;
@@ -285,6 +325,17 @@ impl TermCore {
                     } else if let Some(rest) = payload.strip_prefix(b"9;4;") {
                         self.record_progress(rest);
                         true
+                    } else if payload == b"11;?" {
+                        // "What is your background colour?" — answer with the
+                        // theme's, so a probing CLI can pick light or dark.
+                        let [r, g, b] = self.bg_rgb;
+                        self.responses.push(
+                            format!(
+                                "\x1b]11;rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}\x07"
+                            )
+                            .into_bytes(),
+                        );
+                        true
                     } else {
                         false
                     };
@@ -305,8 +356,10 @@ impl TermCore {
                     let payload = &data[payload_start..];
                     let ours = b"133;".starts_with(payload)
                         || b"9;4;".starts_with(payload)
+                        || b"11;?".starts_with(payload)
                         || payload.starts_with(b"133;")
-                        || payload.starts_with(b"9;4;");
+                        || payload.starts_with(b"9;4;")
+                        || payload.starts_with(b"11;?");
                     if !ours || payload.len() > 4096 {
                         i += 1;
                         continue;
@@ -464,6 +517,42 @@ impl TermCore {
     }
 }
 
+/// The capability queries a program can ask, and the answer to send back.
+///
+/// Modern CLIs (charmbracelet/colorprofile and friends) probe the terminal
+/// before choosing a colour profile; a terminal that stays silent makes
+/// them fall back to no colour, or wait out a timeout first. These are the
+/// probes those libraries send.
+fn query_at(data: &[u8]) -> Option<(usize, Vec<u8>)> {
+    const QUERIES: &[(&[u8], &[u8])] = &[
+        // DA1: VT220 with ANSI colour.
+        (b"\x1b[c", b"\x1b[?62;4;6;22c"),
+        // DA2: xterm-ish version.
+        (b"\x1b[>c", b"\x1b[>1;4000;0c"),
+        // XTVERSION.
+        (b"\x1b[>q", b"\x1bP>|cl2metal 0.1\x1b\\"),
+        // DECRQM: synchronized output and grapheme clusters, both reset.
+        (b"\x1b[?2026$p", b"\x1b[?2026;2$y"),
+        (b"\x1b[?2027$p", b"\x1b[?2027;2$y"),
+    ];
+    QUERIES
+        .iter()
+        .find(|(q, _)| data.starts_with(q))
+        .map(|(q, a)| (q.len(), a.to_vec()))
+}
+
+/// Whether the tail could still grow into one of the queries.
+fn is_partial_query(data: &[u8]) -> bool {
+    const QUERIES: &[&[u8]] = &[
+        b"\x1b[c",
+        b"\x1b[>c",
+        b"\x1b[>q",
+        b"\x1b[?2026$p",
+        b"\x1b[?2027$p",
+    ];
+    data.len() < 9 && QUERIES.iter().any(|q| q.starts_with(data))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,6 +599,42 @@ mod tests {
         assert_eq!(core.marks()[0].kind, MarkKind::Done);
         assert_eq!(core.marks()[0].exit, Some(130));
         assert_eq!(core.last_exit(), Some(130));
+    }
+
+    #[test]
+    fn capability_queries_are_answered_and_not_printed() {
+        let mut core = core();
+        core.set_background([0x1e, 0x1e, 0x1e]);
+        core.feed(b"\x1b[c\x1b[>q\x1b[?2026$p\x1b[?2027$p\x1b]11;?\x07");
+        let responses = core.take_responses();
+        assert_eq!(responses.len(), 5, "one answer per query");
+        assert_eq!(responses[0], b"\x1b[?62;4;6;22c", "DA1");
+        assert!(responses[1].starts_with(b"\x1bP>|"), "XTVERSION reply");
+        assert_eq!(responses[2], b"\x1b[?2026;2$y", "sync output: reset");
+        assert_eq!(responses[3], b"\x1b[?2027;2$y", "grapheme clusters: reset");
+        assert_eq!(
+            responses[4],
+            b"\x1b]11;rgb:1e1e/1e1e/1e1e\x07",
+            "the theme's background"
+        );
+        assert!(
+            screen_text(&core).trim().is_empty(),
+            "nothing of the queries was drawn"
+        );
+    }
+
+    #[test]
+    fn a_query_split_across_reads_is_still_answered() {
+        let mut core = core();
+        core.feed(b"\x1b[?20");
+        assert!(
+            core.take_responses().is_empty(),
+            "held back, not answered yet"
+        );
+        core.feed(b"26$p");
+        let responses = core.take_responses();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0], b"\x1b[?2026;2$y");
     }
 
     #[test]
