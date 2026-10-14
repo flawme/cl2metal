@@ -42,3 +42,8 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
 ] }
+
+# Unix: non-blocking duplicates of the pty's fds, for the async session
+# tasks that replaced the per-pane threads.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

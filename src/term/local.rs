@@ -1,8 +1,7 @@
 //! Local shell sessions backed by a native PTY.
 
 use super::{ClientMsg, MsgTx, SessionMsg, Waker};
-use portable_pty::{CommandBuilder, PtySize, native_pty_system};
-use std::io::{Read, Write};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 /// The shell to run when the config does not name one.
 pub(crate) fn default_shell() -> String {
@@ -103,10 +102,186 @@ pub fn spawn(
     // Drop the slave so the shell sees EOF if we die.
     drop(pair.slave);
 
+    #[cfg(unix)]
+    start_tasks(pair.master, child, client_rx, msg_tx)?;
+    #[cfg(not(unix))]
+    start_threads(pair.master, child, client_rx, msg_tx)?;
+
+    Ok((client_tx, msg_rx, shell_pid))
+}
+
+/// Run the session's three loops as tasks on the shared runtime.
+///
+/// A thread per loop would grow with every pane; tasks on one fixed pool
+/// do not. The pty's fd is duplicated non-blocking for the async reads
+/// and writes; the master itself stays behind a lock, because it owns the
+/// pty and answers resizes.
+#[cfg(unix)]
+fn start_tasks(
+    master: Box<dyn MasterPty + Send>,
+    child: Box<dyn Child + Send + Sync>,
+    client_rx: flume::Receiver<ClientMsg>,
+    msg_tx: MsgTx,
+) -> anyhow::Result<()> {
+    use std::os::fd::AsRawFd;
+    let fd = master
+        .as_raw_fd()
+        .ok_or_else(|| anyhow::anyhow!("the pty has no file descriptor"))?;
+    let read_fd = dup_nonblocking(fd)?;
+    let write_fd = dup_nonblocking(fd)?;
+    let master = std::sync::Arc::new(std::sync::Mutex::new(master));
+    let killer = child.clone_killer();
+
+    // Reader task: pty → UI.
+    {
+        let msg_tx = msg_tx.clone();
+        super::runtime().spawn(async move {
+            use std::io::Read;
+            // The registration needs the runtime's reactor, so it happens
+            // here rather than on the spawning thread.
+            let afd = match tokio::io::unix::AsyncFd::new(std::fs::File::from(read_fd)) {
+                Ok(a) => a,
+                Err(e) => {
+                    log::warn!("pty reader: {e}");
+                    return;
+                }
+            };
+            let mut buf = [0u8; 8192];
+            loop {
+                let mut guard = match afd.readable().await {
+                    Ok(g) => g,
+                    Err(_) => break,
+                };
+                match guard.try_io(|inner| {
+                    let mut f = inner.get_ref();
+                    f.read(&mut buf)
+                }) {
+                    Ok(Ok(0)) | Ok(Err(_)) => break,
+                    Ok(Ok(n)) => {
+                        if msg_tx.send(SessionMsg::Data(buf[..n].to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => continue,
+                }
+            }
+        });
+    }
+
+    // Writer task: UI → pty, plus resize and kill.
+    {
+        let master = master.clone();
+        super::runtime().spawn(async move {
+            use std::io::Write;
+            let afd = match tokio::io::unix::AsyncFd::new(std::fs::File::from(write_fd)) {
+                Ok(a) => a,
+                Err(e) => {
+                    log::warn!("pty writer: {e}");
+                    return;
+                }
+            };
+            let mut killer = killer;
+            while let Ok(msg) = client_rx.recv_async().await {
+                match msg {
+                    ClientMsg::Input(bytes) => {
+                        let mut rest = &bytes[..];
+                        while !rest.is_empty() {
+                            let mut guard = match afd.writable().await {
+                                Ok(g) => g,
+                                Err(_) => return,
+                            };
+                            match guard.try_io(|inner| {
+                                let mut f = inner.get_ref();
+                                f.write(rest)
+                            }) {
+                                Ok(Ok(n)) => rest = &rest[n..],
+                                Ok(Err(_)) => return,
+                                Err(_) => continue,
+                            }
+                        }
+                    }
+                    ClientMsg::Resize {
+                        cols,
+                        rows,
+                        cell_w,
+                        cell_h,
+                    } => {
+                        if let Ok(m) = master.lock() {
+                            let _ = m.resize(PtySize {
+                                rows,
+                                cols,
+                                pixel_width: cell_w,
+                                pixel_height: cell_h,
+                            });
+                        }
+                    }
+                    ClientMsg::Close => {
+                        let _ = killer.kill();
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    // Waiter task: report child exit. A timer and `try_wait` instead of a
+    // parked thread.
+    {
+        super::runtime().spawn(async move {
+            let mut child = child;
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        log::info!("shell exited: {status}");
+                        let _ = msg_tx.send(SessionMsg::Exited(status.to_string()));
+                        break;
+                    }
+                    Ok(None) => {
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    }
+                    Err(e) => {
+                        let _ = msg_tx.send(SessionMsg::Exited(format!("wait failed: {e}")));
+                        break;
+                    }
+                }
+            }
+        });
+    }
+    Ok(())
+}
+
+/// A private, non-blocking duplicate of a pty fd, for the async tasks.
+#[cfg(unix)]
+fn dup_nonblocking(fd: std::os::fd::RawFd) -> std::io::Result<std::os::fd::OwnedFd> {
+    use std::os::fd::FromRawFd;
+    let dup = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
+    if dup < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let owned = unsafe { std::os::fd::OwnedFd::from_raw_fd(dup) };
+    let flags = unsafe { libc::fcntl(dup, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(dup, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(owned)
+}
+
+/// The Windows path: one thread per loop, as before.
+///
+/// `AsyncFd` is a unix facility; on Windows the sessions keep their own
+/// threads.
+#[cfg(not(unix))]
+fn start_threads(
+    master: Box<dyn MasterPty + Send>,
+    child: Box<dyn Child + Send + Sync>,
+    client_rx: flume::Receiver<ClientMsg>,
+    msg_tx: MsgTx,
+) -> anyhow::Result<()> {
+    use std::io::{Read, Write};
     // Reader thread: pty → UI.
     {
         let msg_tx = msg_tx.clone();
-        let mut reader = pair.master.try_clone_reader()?;
+        let mut reader = master.try_clone_reader()?;
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
             loop {
@@ -125,8 +300,7 @@ pub fn spawn(
     // Writer thread: UI → pty, plus resize and kill.
     let killer = child.clone_killer();
     {
-        let mut writer = pair.master.take_writer()?;
-        let master = pair.master;
+        let mut writer = master.take_writer()?;
         std::thread::spawn(move || {
             let mut killer = killer;
             while let Ok(msg) = client_rx.recv() {
@@ -173,8 +347,7 @@ pub fn spawn(
             }
         });
     }
-
-    Ok((client_tx, msg_rx, shell_pid))
+    Ok(())
 }
 
 /// The names of the processes still running under a shell, if any.
@@ -300,6 +473,42 @@ mod tests {
             !names.iter().any(|n| n == "sleep"),
             "the reaped child is gone: {names:?}"
         );
+    }
+
+    #[test]
+    fn a_session_reports_output_and_exit() {
+        let (client_tx, msg_rx, _pid) = spawn(
+            "",
+            80,
+            24,
+            Some("read line; echo got:$line"),
+            std::sync::Arc::new(|| {}),
+        )
+        .expect("spawn a session");
+        // Give the shell a moment to start, then type into it: this covers
+        // the reader, the writer, and the exit reporter in one pass.
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        client_tx
+            .send(ClientMsg::Input(b"hello\n".to_vec()))
+            .expect("send input");
+        let mut text = String::new();
+        let mut exited = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline && !exited {
+            match msg_rx.recv_timeout(std::time::Duration::from_millis(200)) {
+                Ok(SessionMsg::Data(bytes)) => {
+                    text.push_str(&String::from_utf8_lossy(&bytes));
+                }
+                Ok(SessionMsg::Exited(_)) => exited = true,
+                Ok(_) => {}
+                Err(_) => {}
+            }
+        }
+        assert!(
+            text.contains("got:hello"),
+            "the typed line came back: {text:?}"
+        );
+        assert!(exited, "the exit was reported");
     }
 
     #[test]

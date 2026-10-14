@@ -14,6 +14,23 @@ pub mod ssh;
 /// The session layer knows nothing about egui; the app hands it a closure.
 pub type Waker = std::sync::Arc<dyn Fn() + Send + Sync>;
 
+/// The runtime the terminal's sessions run on.
+///
+/// One shared, fixed-size pool instead of a thread per pane: splitting a
+/// pane adds tasks, not threads, so the thread count stops growing with
+/// the number of panes.
+pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("cl2metal-pty")
+            .enable_all()
+            .build()
+            .expect("build the terminal runtime")
+    })
+}
+
 /// A `SessionMsg` sender that also wakes the UI.
 ///
 /// Without this, output only appears on the next animation frame or cursor

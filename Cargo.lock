@@ -948,6 +948,7 @@ dependencies = [
  "fontdb",
  "image",
  "keyring",
+ "libc",
  "log",
  "portable-pty",
  "regex",
