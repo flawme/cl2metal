@@ -216,12 +216,17 @@ pub struct ScrollState {
     target: f32,
     /// Where it is drawn this frame, eased toward the target.
     display: f32,
+    /// The grid offset the easing last left the grid at. `None` right
+    /// after a snap, until the easing has actually moved the grid.
+    anchor: Option<i32>,
 }
 
 impl ScrollState {
-    /// Add wheel lines (fractional; positive = older).
+    /// Add wheel lines (fractional; positive = older). The live output is
+    /// the floor: there is nothing below it to ease toward, and a negative
+    /// target would fight the grid's clamp every frame.
     pub fn wheel(&mut self, lines: f32) {
-        self.target += lines;
+        self.target = (self.target + lines).max(0.0);
     }
 
     /// Head for an offset (keyboard paging): eased, not snapped.
@@ -233,6 +238,9 @@ impl ScrollState {
     pub fn snap(&mut self, lines: f32) {
         self.target = lines;
         self.display = lines;
+        // Typing wins: until the easing has actually moved the grid,
+        // output arriving must not drag the user back up.
+        self.anchor = None;
     }
 
     /// Ease toward the target. Returns true while still moving.
@@ -257,6 +265,25 @@ impl ScrollState {
         if self.display > actual + 0.5 {
             self.display = actual;
         }
+    }
+
+    /// Reconcile with the grid: output that arrived while the user is
+    /// scrolled up grows the history, and the grid keeps their content in
+    /// view by raising its offset. Ride along, or the easing would fight
+    /// the hold all the way back down.
+    pub fn follow_grid(&mut self, current: i32) {
+        if let Some(anchor) = self.anchor
+            && current != anchor
+        {
+            let by = (current - anchor) as f32;
+            self.target += by;
+            self.display += by;
+        }
+    }
+
+    /// Note where the easing left the grid this frame.
+    pub fn anchored_at(&mut self, current: i32) {
+        self.anchor = Some(current);
     }
 
     /// The integer offset to show, and the pixel shift that goes with it:
@@ -742,6 +769,51 @@ mod tests {
         assert!(!s.ease(0.016), "settled");
         let (base, _) = s.base_and_shift(10.0);
         assert_eq!(base, 40);
+    }
+
+    #[test]
+    fn wheeling_down_at_the_live_line_stays_there() {
+        let mut s = ScrollState::default();
+        // There is nothing below the live output to ease toward; without
+        // the clamp the state would sink below zero and eat the first
+        // wheel-ups climbing back out.
+        s.wheel(-5.0);
+        assert!(!s.ease(0.016), "nothing to ease");
+        let (base, _) = s.base_and_shift(10.0);
+        assert_eq!(base, 0, "0 is the live output");
+    }
+
+    #[test]
+    fn output_arriving_while_scrolled_up_holds_the_view() {
+        let mut s = ScrollState::default();
+        s.wheel(12.0);
+        for _ in 0..100 {
+            s.ease(0.016);
+        }
+        s.anchored_at(12);
+        // Three new lines grew the history: the grid raised its offset to
+        // keep the same content in view, and the state rides along instead
+        // of easing back down over it.
+        s.follow_grid(15);
+        assert!(!s.ease(0.016), "the hold is not motion to undo");
+        let (base, _) = s.base_and_shift(10.0);
+        assert_eq!(base, 15, "still reading the same lines");
+    }
+
+    #[test]
+    fn a_snap_wins_the_race_with_arriving_output() {
+        let mut s = ScrollState::default();
+        s.wheel(12.0);
+        for _ in 0..100 {
+            s.ease(0.016);
+        }
+        s.anchored_at(12);
+        s.snap(0.0);
+        // Output landed before the easing moved the grid: typing must
+        // still land on the live line, not be dragged back up.
+        s.follow_grid(15);
+        let (base, _) = s.base_and_shift(10.0);
+        assert_eq!(base, 0, "typing returns to the live output");
     }
 
     #[test]

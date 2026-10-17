@@ -443,6 +443,9 @@ pub struct App {
     /// follows is the tail of that same drag and must not also type the
     /// path into the terminal.
     bg_drop_done: bool,
+    /// The scrollbar's current width, eased between thin (rest) and wide
+    /// (pointer over the bar).
+    scrollbar_w: f32,
 
     selecting: bool,
     mouse_held: Option<MouseBtn>,
@@ -735,6 +738,7 @@ impl App {
             force_close: false,
             bg_drop_at: None,
             bg_drop_done: false,
+            scrollbar_w: view::SCROLLBAR_THIN,
             selecting: false,
             mouse_held: None,
             last_click: None,
@@ -1026,18 +1030,26 @@ impl eframe::App for App {
         // part; the fraction rides to the renderer as a pixel shift.
         if let Some(tab) = self.tabs.get_mut(self.active) {
             for pane in &mut tab.panes {
+                // Output that arrived since the last frame moved the grid
+                // on its own (the user is scrolled up, so the grid raised
+                // its offset to keep their content in view): ride along
+                // before easing, or the easing would pull the viewport
+                // back down over what they are reading.
+                let grid_at = pane.core.term.grid().display_offset() as i32;
+                pane.core.scroll.follow_grid(grid_at);
                 let moving = pane.core.scroll.ease(self.frame_dt);
                 let (base, _) = pane.core.scroll.base_and_shift(1.0);
-                let current = pane.core.term.grid().display_offset() as i32;
+                let mut current = pane.core.term.grid().display_offset() as i32;
                 if base != current {
                     pane.core.term.scroll_display(Scroll::Delta(base - current));
-                    let after = pane.core.term.grid().display_offset() as i32;
-                    if after != base {
+                    current = pane.core.term.grid().display_offset() as i32;
+                    if current != base {
                         // The terminal clamped: the target is past the
                         // history, so settle instead of chasing it.
-                        pane.core.scroll.settle_to(after as f32);
+                        pane.core.scroll.settle_to(current as f32);
                     }
                 }
+                pane.core.scroll.anchored_at(current);
                 if moving {
                     ctx.request_repaint();
                 }

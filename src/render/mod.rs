@@ -3,6 +3,8 @@
 
 pub mod glyphs;
 
+mod boxes;
+
 use crate::config::BackgroundFit;
 use crate::term::TermCore;
 use crate::theme::Theme;
@@ -322,30 +324,53 @@ pub fn build_frame(
             }
         }
 
-        // Glyph.
+        // Glyph. Box-drawing and block characters are drawn as cell-aligned
+        // geometry instead of font glyphs: the font's box glyphs carry
+        // per-glyph ink offsets, so ink-centered blits step and notch where
+        // the glyphs hand off (a rounded border breaks into visible seams).
         let ch_char = cell_ref.c;
-        if ch_char != ' '
-            && !flags.contains(Flags::WIDE_CHAR_SPACER)
-            && let Some(entry) = atlas.glyph(ch_char, bold, italic)
-            && entry.w > 0.0
-        {
-            let wide = flags.contains(Flags::WIDE_CHAR);
-            let area_w = if wide { cw * 2.0 } else { cw };
-            let gx = x + ((area_w - entry.w) * 0.5).round();
-            let gy = y + entry.top.round();
-
+        if ch_char != ' ' && !flags.contains(Flags::WIDE_CHAR_SPACER) {
             let mut glyph_color = rgba(fg, 1.0);
             if is_cursor && matches!(cursor.shape, CursorShape::Block) && !hollow_cursor {
                 // Invert text under a filled block cursor.
                 glyph_color = rgba(bg, 1.0);
             }
-            frame.glyphs.push(GlyphInst {
-                pos: [gx, gy],
-                size: [entry.w, entry.h],
-                uv0: [entry.uv[0], entry.uv[1]],
-                uv1: [entry.uv[2], entry.uv[3]],
-                color: glyph_color,
-            });
+            if boxes::is_drawn(ch_char) {
+                for r in boxes::rects(ch_char, x, y, cw, ch).iter() {
+                    frame.bg.push(BgInst {
+                        pos: [r[0], r[1]],
+                        size: [r[2], r[3]],
+                        color: glyph_color,
+                    });
+                }
+                // The rounded corners also paint their anti-aliased arc as a
+                // cell-sized synthetic glyph, so the curve meets the arms.
+                if boxes::arc_kind(ch_char).is_some()
+                    && let Some(entry) = atlas.synthetic(ch_char, cw, ch)
+                {
+                    frame.glyphs.push(GlyphInst {
+                        pos: [x + ((cw - entry.w) * 0.5).round(), y + entry.top.round()],
+                        size: [entry.w, entry.h],
+                        uv0: [entry.uv[0], entry.uv[1]],
+                        uv1: [entry.uv[2], entry.uv[3]],
+                        color: glyph_color,
+                    });
+                }
+            } else if let Some(entry) = atlas.glyph(ch_char, bold, italic)
+                && entry.w > 0.0
+            {
+                let wide = flags.contains(Flags::WIDE_CHAR);
+                let area_w = if wide { cw * 2.0 } else { cw };
+                let gx = x + ((area_w - entry.w) * 0.5).round();
+                let gy = y + entry.top.round();
+                frame.glyphs.push(GlyphInst {
+                    pos: [gx, gy],
+                    size: [entry.w, entry.h],
+                    uv0: [entry.uv[0], entry.uv[1]],
+                    uv1: [entry.uv[2], entry.uv[3]],
+                    color: glyph_color,
+                });
+            }
         }
     }
 

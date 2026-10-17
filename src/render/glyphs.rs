@@ -27,6 +27,8 @@ pub struct GlyphAtlas {
     /// Rasterization scale in physical pixels.
     pub size_px: u16,
     cache: HashMap<(u8, char, u16), GlyphEntry>,
+    /// Synthetic cell-sized entries (the rounded-corner arcs), by cell size.
+    synth_cache: HashMap<(char, u16, u16), GlyphEntry>,
     pixels: Vec<u8>,
     width: u32,
     height: u32,
@@ -121,6 +123,7 @@ impl GlyphAtlas {
             fonts,
             size_px,
             cache: HashMap::new(),
+            synth_cache: HashMap::new(),
             pixels: vec![0; (ATLAS_SIZE * ATLAS_SIZE) as usize],
             width: ATLAS_SIZE,
             height: ATLAS_SIZE,
@@ -282,6 +285,43 @@ impl GlyphAtlas {
         Some(entry)
     }
 
+    /// Rasterize a synthetic, cell-sized glyph — the anti-aliased arc of a
+    /// rounded box-drawing corner — into the atlas. Unlike font glyphs these
+    /// blit cell-aligned (`top` is 0 and the entry spans the whole cell), so
+    /// the arc meets the corner's straight arms exactly. Cached per size.
+    pub fn synthetic(&mut self, c: char, cw: f32, ch: f32) -> Option<GlyphEntry> {
+        let key = (c, cw as u16, ch as u16);
+        if let Some(e) = self.synth_cache.get(&key) {
+            return Some(e.clone());
+        }
+        let (uw, uh) = (cw.ceil() as u32, ch.ceil() as u32);
+        if uw == 0 || uh == 0 {
+            return None;
+        }
+        let pos = self.pack(uw, uh)?;
+        let (x0, y0) = (pos.0, pos.1);
+        super::boxes::paint_arc(c, cw, ch, &mut |dx: u32, dy: u32, v: u8| {
+            let idx = ((y0 + dy) * self.width + x0 + dx) as usize;
+            if v > self.pixels[idx] {
+                self.pixels[idx] = v;
+            }
+        });
+        self.dirty.push([pos.0 as u16, pos.1 as u16, uw as u16, uh as u16]);
+        let entry = GlyphEntry {
+            top: 0.0,
+            w: uw as f32,
+            h: uh as f32,
+            uv: [
+                pos.0 as f32 / self.width as f32,
+                pos.1 as f32 / self.height as f32,
+                (pos.0 + uw) as f32 / self.width as f32,
+                (pos.1 + uh) as f32 / self.height as f32,
+            ],
+        };
+        self.synth_cache.insert(key, entry.clone());
+        Some(entry)
+    }
+
     /// Shelf-pack a `w x h` box; grows the atlas when full.
     fn pack(&mut self, w: u32, h: u32) -> Option<(u32, u32)> {
         if w + 2 * MARGIN > self.width || h + 2 * MARGIN > self.height {
@@ -313,6 +353,7 @@ impl GlyphAtlas {
         self.height = new_height;
         self.pixels = vec![0; (self.width * self.height) as usize];
         self.cache.clear();
+        self.synth_cache.clear();
         self.pack_x = MARGIN;
         self.pack_y = MARGIN;
         self.row_h = 0;
@@ -357,4 +398,28 @@ pub fn query_exists(db: &Database, family: &str) -> bool {
         style: Style::Normal,
     })
     .is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An empty font database still yields a working atlas: the synthetic
+    /// path rasterizes geometry, not font outlines.
+    #[test]
+    fn synthetic_arcs_blit_cell_aligned_and_cache() {
+        let db = Database::new();
+        let mut atlas = GlyphAtlas::new(&db, "none", 18);
+
+        let e = atlas.synthetic('\u{256D}', 9.0, 18.0).expect("the arc rasterizes");
+        assert_eq!(e.top, 0.0, "blits at the cell's top edge");
+        assert_eq!((e.w, e.h), (9.0, 18.0), "spans the whole cell");
+        assert!(!atlas.dirty.is_empty(), "the atlas got pixels to upload");
+
+        // The second call is served from the cache: same entry, no new work.
+        let dirty_after_first = atlas.dirty.len();
+        let e2 = atlas.synthetic('\u{256D}', 9.0, 18.0).expect("cached");
+        assert_eq!(e2.uv, e.uv);
+        assert_eq!(atlas.dirty.len(), dirty_after_first);
+    }
 }

@@ -867,8 +867,9 @@ impl App {
         if history > 0 {
             let offset = self.tabs[self.active].core.term.grid().display_offset();
             let rows = self.tabs[self.active].core.rows();
+            let bar_w = self.scrollbar_w;
             let track = egui::Rect::from_min_max(
-                egui::pos2(pane_rect.max.x - 7.0, pane_rect.min.y + 4.0),
+                egui::pos2(pane_rect.max.x - 4.0 - bar_w, pane_rect.min.y + 4.0),
                 egui::pos2(pane_rect.max.x - 4.0, pane_rect.max.y - 4.0),
             );
             let total = (rows + history) as f32;
@@ -889,10 +890,18 @@ impl App {
                 egui::Sense::click_and_drag(),
             );
             let active = bar.hovered() || bar.dragged();
+            // The bar breathes wider under the pointer, VS Code style.
+            let want = if active { SCROLLBAR_WIDE } else { SCROLLBAR_THIN };
+            let was = self.scrollbar_w;
+            self.scrollbar_w = eased_width(self.scrollbar_w, want, self.frame_dt);
+            if self.scrollbar_w != was {
+                ui.ctx().request_repaint();
+            }
             let painter = ui.painter();
+            let radius = (bar_w * 0.5).min(4.0);
             painter.rect_filled(
                 track,
-                2.0,
+                radius,
                 ui::with_alpha(
                     color32(self.theme.ui.border),
                     if active { 0.9 } else { 0.5 },
@@ -900,7 +909,7 @@ impl App {
             );
             painter.rect_filled(
                 thumb,
-                2.0,
+                radius,
                 ui::with_alpha(
                     color32(self.theme.ui.text_dim),
                     if active { 1.0 } else { 0.7 },
@@ -1493,9 +1502,39 @@ pub(crate) fn set_ratio(node: &mut PaneNode, path: &[bool], ratio: f32) {
     }
 }
 
+/// The scrollbar's width at rest, and under the pointer.
+pub(crate) const SCROLLBAR_THIN: f32 = 3.0;
+pub(crate) const SCROLLBAR_WIDE: f32 = 8.0;
+
+/// One eased step of the scrollbar's hover width, snapped when close.
+fn eased_width(cur: f32, want: f32, dt: f32) -> f32 {
+    let k = 1.0 - (-dt * 26.0).exp();
+    let next = cur + (want - cur) * k;
+    if (want - next).abs() < 0.05 {
+        want
+    } else {
+        next
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::decode_image;
+
+    #[test]
+    fn the_scrollbar_width_eases_both_ways() {
+        // Expands toward the wide target without overshooting.
+        let mut w = super::SCROLLBAR_THIN;
+        for _ in 0..60 {
+            w = super::eased_width(w, super::SCROLLBAR_WIDE, 0.016);
+        }
+        assert_eq!(w, super::SCROLLBAR_WIDE, "converged on hover");
+        // Shrinks back the same way.
+        for _ in 0..60 {
+            w = super::eased_width(w, super::SCROLLBAR_THIN, 0.016);
+        }
+        assert_eq!(w, super::SCROLLBAR_THIN, "back to thin at rest");
+    }
 
     #[test]
     fn decoding_a_png_reports_its_size() {
