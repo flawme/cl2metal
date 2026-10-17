@@ -633,9 +633,15 @@ mod tests {
         // A folder into itself.
         assert!(tree.mv(&dir.join("sub"), &dir.join("sub")).is_err());
         // A folder into its own descendant.
-        assert!(tree.mv(&dir.join("sub"), &dir.join("sub").join("deep")).is_err());
+        assert!(
+            tree.mv(&dir.join("sub"), &dir.join("sub").join("deep"))
+                .is_err()
+        );
         // Into the folder it already lives in is a no-op, not an error.
-        assert_eq!(tree.mv(&dir.join("a.txt"), &dir).unwrap(), dir.join("a.txt"));
+        assert_eq!(
+            tree.mv(&dir.join("a.txt"), &dir).unwrap(),
+            dir.join("a.txt")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

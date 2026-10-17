@@ -137,14 +137,7 @@ impl Editor {
         let mut hover_target: Option<std::path::PathBuf> = None;
         // One row past the viewport is kept: the sub-line shift pulls it in
         // at the bottom edge.
-        for (i, row) in self
-            .tree
-            .rows()
-            .iter()
-            .enumerate()
-            .skip(top)
-            .take(rows + 1)
-        {
+        for (i, row) in self.tree.rows().iter().enumerate().skip(top).take(rows + 1) {
             let y = list.min.y + (i - top) as f32 * row_h - frac * row_h;
             let row_rect = egui::Rect::from_min_size(
                 egui::pos2(list.min.x, y),
@@ -285,9 +278,7 @@ impl Editor {
         // Shift+Delete asks before erasing for good.
         if self.tree.prompt.is_none()
             && ui.input(|i| {
-                i.pointer
-                    .interact_pos()
-                    .is_some_and(|p| rect.contains(p))
+                i.pointer.interact_pos().is_some_and(|p| rect.contains(p))
                     && i.key_pressed(egui::Key::Delete)
             })
             && let Some(path) = self.tree.selected.clone()
@@ -416,12 +407,11 @@ impl Editor {
                         // The deleted entry may have open buffers: without this
                         // they keep editing, and the next save quietly
                         // resurrects the file.
-                        let detached =
-                            if let TreePrompt::Delete { path, .. } = &prompt {
-                                self.tree_deleted(path)
-                            } else {
-                                false
-                            };
+                        let detached = if let TreePrompt::Delete { path, .. } = &prompt {
+                            self.tree_deleted(path)
+                        } else {
+                            false
+                        };
                         if !detached {
                             self.say("deleted for good");
                         }
@@ -610,7 +600,8 @@ impl Editor {
             .unwrap_or_default();
         let row_h = metrics.cell_h + 6.0;
         let width = 420.0f32.min(area.width() - 24.0);
-        let card = egui::Rect::from_center_size(area.center(), egui::vec2(width, row_h * 3.0 + 18.0));
+        let card =
+            egui::Rect::from_center_size(area.center(), egui::vec2(width, row_h * 3.0 + 18.0));
         let painter = ui.painter_at(area);
         // Dim what is behind, so the question is the only thing in focus.
         painter.rect_filled(area, 0.0, egui::Color32::from_black_alpha(96));
@@ -650,7 +641,11 @@ impl Editor {
         let mut answer: Option<&str> = None;
         for (label, rect) in &buttons {
             let clicked = ui
-                .interact(*rect, ui.id().with(("close-prompt", *label)), egui::Sense::click())
+                .interact(
+                    *rect,
+                    ui.id().with(("close-prompt", *label)),
+                    egui::Sense::click(),
+                )
                 .clicked();
             let color = match *label {
                 "Save" => style.accent,

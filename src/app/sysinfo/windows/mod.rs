@@ -88,11 +88,40 @@ pub(crate) fn process_rss_kib() -> Option<u64> {
     (ok != 0).then_some(counters.WorkingSetSize as u64 / 1024)
 }
 
-/// Threads in this process.
-///
-/// A count needs a Toolhelp32 snapshot; the CPU line reads fine without it.
+/// Threads in this process, read from a Toolhelp32 process snapshot.
 pub(crate) fn process_threads() -> Option<u64> {
-    None
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE {
+            return None;
+        }
+
+        let my_pid = GetCurrentProcessId();
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        let mut count = None;
+        if Process32FirstW(snapshot, &mut entry) != 0 {
+            loop {
+                if entry.th32ProcessID == my_pid {
+                    count = Some(entry.cntThreads as u64);
+                    break;
+                }
+                if Process32NextW(snapshot, &mut entry) == 0 {
+                    break;
+                }
+            }
+        }
+        CloseHandle(snapshot);
+        count
+    }
 }
 
 /// CPU time this process has used, in clock ticks (kernel + user).
@@ -116,4 +145,23 @@ pub(crate) fn process_cpu_ticks() -> Option<u64> {
     let ticks =
         |ft: FILETIME| (((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64) / 100_000;
     Some(ticks(kernel) + ticks(user))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_threads_returns_non_zero_on_windows() {
+        let threads = process_threads();
+        assert!(threads.is_some(), "should read thread count on Windows");
+        assert!(threads.unwrap() >= 1, "process has at least one thread");
+    }
+
+    #[test]
+    fn process_rss_is_positive() {
+        let rss = process_rss_kib();
+        assert!(rss.is_some());
+        assert!(rss.unwrap() > 0);
+    }
 }

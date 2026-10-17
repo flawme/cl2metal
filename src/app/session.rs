@@ -220,7 +220,9 @@ impl App {
         let (user, host_port) = match spec.split_once('@') {
             Some((user, rest)) => (user.to_owned(), rest),
             None => (
-                std::env::var("USER").unwrap_or_else(|_| "root".to_owned()),
+                std::env::var("USER")
+                    .or_else(|_| std::env::var("USERNAME"))
+                    .unwrap_or_else(|_| "root".to_owned()),
                 spec,
             ),
         };

@@ -534,10 +534,7 @@ impl App {
         painter.rect_filled(
             rect,
             10.0,
-            ui::with_alpha(
-                color32(self.theme.ui.panel_bg),
-                0.96 * self.theme.ui_alpha,
-            ),
+            ui::with_alpha(color32(self.theme.ui.panel_bg), 0.96 * self.theme.ui_alpha),
         );
         painter.rect_stroke(
             rect,
@@ -563,10 +560,7 @@ impl App {
             ui::with_alpha(color32(self.theme.ui.border), 0.6),
         );
         painter.rect_filled(
-            egui::Rect::from_min_size(
-                track.min,
-                egui::vec2(track.width() * done, track.height()),
-            ),
+            egui::Rect::from_min_size(track.min, egui::vec2(track.width() * done, track.height())),
             1.5,
             color32(self.theme.ui.accent),
         );
@@ -1082,7 +1076,8 @@ impl App {
         let mut forget_host: Option<usize> = None;
         let mut rename_submit: Option<(usize, String)> = None;
         let mut paste: Option<String> = None;
-        let mut profile_save: Option<crate::config::SshProfile> = None;
+        let mut profile_save: Option<(crate::config::SshProfile, Option<String>)> = None;
+        let mut profile_delete: Option<String> = None;
         let mut keys_save: Option<std::collections::BTreeMap<String, String>> = None;
         match &mut self.overlay {
             Overlay::None => {}
@@ -1174,15 +1169,19 @@ impl App {
             }
             Overlay::Profile {
                 profile,
-                is_new,
+                original,
                 error,
             } => {
-                let (c, save) = ui::show_profile(ui, &theme, profile, *is_new, error);
+                let (c, save, remove) =
+                    ui::show_profile(ui, &theme, profile, original.as_deref(), error);
                 if c {
                     close = true;
                 }
                 if save {
-                    profile_save = Some(profile.clone());
+                    profile_save = Some((profile.clone(), original.clone()));
+                }
+                if remove {
+                    profile_delete = original.clone();
                 }
             }
             Overlay::Keybindings {
@@ -1216,8 +1215,8 @@ impl App {
             }
             close = true;
         }
-        if let Some(profile) = profile_save {
-            match self.save_profile(profile) {
+        if let Some((profile, original)) = profile_save {
+            match self.save_profile(profile, original.as_deref()) {
                 Ok(()) => close = true,
                 Err(e) => {
                     if let Overlay::Profile { error, .. } = &mut self.overlay {
@@ -1225,6 +1224,10 @@ impl App {
                     }
                 }
             }
+        }
+        if let Some(name) = profile_delete {
+            self.delete_profile(&name);
+            close = true;
         }
         if let Some(bindings) = keys_save {
             self.config.editor_keys = bindings;
@@ -1304,6 +1307,11 @@ impl App {
         }
         if let Some((draft, font)) = saved {
             let ctx = ui.ctx().clone();
+            // Removed hosts and changed auth methods invalidate keyring
+            // entries; it happens on save so Cancel leaves them alone.
+            if let Overlay::Settings { original, .. } = &self.overlay {
+                self.drop_stale_secrets(&original.profiles, &draft.profiles);
+            }
             self.apply_config(draft, font, &ctx);
         } else if let Some((config, font)) = restore {
             let ctx = ui.ctx().clone();

@@ -161,8 +161,8 @@ impl App {
     ///
     /// `cd` in the shell is how you say what you are working on, so the tree
     /// follows it — unless the config pins a root with `editor_root`. Reading
-    /// `/proc` is cheap but not free, so it is polled rather than read every
-    /// frame.
+    /// the shell's directory (from `/proc`, or the PEB on Windows) is cheap
+    /// but not free, so it is polled rather than read every frame.
     fn follow_terminal_root(&mut self) {
         const EVERY_SECS: f64 = 0.25;
         if self.config.editor_root.is_some() || self.now < self.last_root_follow + EVERY_SECS {
@@ -198,10 +198,7 @@ impl App {
     fn save_remote_buffer(&mut self, save: crate::editor::PendingRemoteSave) {
         let Some(panel) = &self.sftp else {
             self.toast = Some((
-                format!(
-                    "no SFTP session for {} — open the file browser",
-                    save.host
-                ),
+                format!("no SFTP session for {} — open the file browser", save.host),
                 self.now,
             ));
             return;

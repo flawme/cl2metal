@@ -417,7 +417,9 @@ pub fn import_ssh_config() -> Vec<SshProfile> {
 
 /// Parse OpenSSH client config text into profiles.
 pub fn parse_ssh_config(text: &str) -> Vec<SshProfile> {
-    let default_user = std::env::var("USER").unwrap_or_default();
+    let default_user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_default();
     let mut profiles: Vec<SshProfile> = Vec::new();
     let mut current: Option<SshProfile> = None;
 

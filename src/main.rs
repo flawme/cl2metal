@@ -185,7 +185,11 @@ mod tests {
         let _ = std::panic::catch_unwind(|| panic!("boom"));
 
         let captured = CAPTURED.lock().map(|c| c.clone()).unwrap_or_default();
-        assert!(captured.contains("panic at src/main.rs:"), "{captured}");
+        assert!(
+            captured.contains("panic at src/main.rs:")
+                || captured.contains("panic at src\\main.rs:"),
+            "{captured}"
+        );
         assert!(captured.contains("boom"), "{captured}");
         // `Backtrace`'s Display starts with the first frame, not a header.
         assert!(captured.contains("\n   0: "), "{captured}");

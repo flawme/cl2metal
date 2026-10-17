@@ -354,68 +354,14 @@ fn start_threads(
 ///
 /// This is what the close confirmation asks about: a pane whose shell has
 /// living children — `npm`, an editor, an ssh session — is doing work, and
-/// closing the pane would kill that work. A zombie does not count: it has
-/// exited and is only waiting to be reaped.
+/// closing the pane would kill that work.
 #[cfg(target_os = "linux")]
-pub fn running_children(pid: u32) -> Vec<String> {
-    use std::collections::HashMap;
-    // One pass over /proc builds the parent map, then a walk down from the
-    // shell collects its living descendants.
-    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
-    let mut names: HashMap<u32, String> = HashMap::new();
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    for entry in entries.flatten() {
-        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-            continue;
-        };
-        let Ok(child_pid) = name.parse::<u32>() else {
-            continue;
-        };
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{child_pid}/stat")) else {
-            continue;
-        };
-        // `stat` reads `pid (comm) state ppid ...`, and comm may itself
-        // contain spaces and parentheses — so split after the LAST ')'.
-        let Some((head, tail)) = stat.rsplit_once(')') else {
-            continue;
-        };
-        let mut fields = tail.split_whitespace();
-        let state = fields.next().unwrap_or("");
-        let Some(ppid) = fields.next().and_then(|p| p.parse::<u32>().ok()) else {
-            continue;
-        };
-        if state == "Z" {
-            continue;
-        }
-        let comm = head
-            .split_once('(')
-            .map(|(_, c)| c.to_owned())
-            .unwrap_or_default();
-        names.insert(child_pid, comm);
-        children.entry(ppid).or_default().push(child_pid);
-    }
-    let mut out: Vec<String> = Vec::new();
-    let mut stack = vec![pid];
-    while let Some(p) = stack.pop() {
-        let Some(kids) = children.get(&p) else {
-            continue;
-        };
-        for &kid in kids {
-            if let Some(name) = names.get(&kid)
-                && !out.iter().any(|n| n == name)
-            {
-                out.push(name.clone());
-            }
-            stack.push(kid);
-        }
-    }
-    out
-}
+pub use super::linux::running_children;
 
-/// Without `/proc` there is nothing to walk; nothing ever blocks a close.
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+pub use super::windows::running_children;
+
+#[cfg(not(any(target_os = "linux", windows)))]
 pub fn running_children(_pid: u32) -> Vec<String> {
     Vec::new()
 }
@@ -425,12 +371,12 @@ pub fn running_children(_pid: u32) -> Vec<String> {
 /// This is what lets the editor's file tree follow `cd`: the shell's own
 /// directory is exactly where the user navigated to.
 #[cfg(target_os = "linux")]
-pub fn shell_cwd(pid: u32) -> Option<std::path::PathBuf> {
-    std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
-}
+pub use super::linux::shell_cwd;
 
-/// Without `/proc` there is nothing to read; the tree keeps its root.
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+pub use super::windows::shell_cwd;
+
+#[cfg(not(any(target_os = "linux", windows)))]
 pub fn shell_cwd(_pid: u32) -> Option<std::path::PathBuf> {
     None
 }
@@ -443,10 +389,20 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn the_shell_directory_can_be_read_from_proc() {
         // The test runner itself is a process, and /proc reports its cwd.
-        assert_eq!(
-            shell_cwd(std::process::id()),
-            std::env::current_dir().ok()
-        );
+        assert_eq!(shell_cwd(std::process::id()), std::env::current_dir().ok());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn the_shell_directory_can_be_read_on_windows() {
+        let cwd = shell_cwd(std::process::id());
+        assert!(cwd.is_some());
+        let clean = |p: std::path::PathBuf| {
+            p.to_string_lossy()
+                .trim_end_matches(['\\', '/'])
+                .to_ascii_lowercase()
+        };
+        assert_eq!(cwd.map(clean), std::env::current_dir().ok().map(clean));
     }
 
     #[test]
@@ -477,43 +433,118 @@ mod tests {
 
     #[test]
     fn a_session_reports_output_and_exit() {
-        let (client_tx, msg_rx, _pid) = spawn(
-            "",
-            80,
-            24,
-            Some("read line; echo got:$line"),
-            std::sync::Arc::new(|| {}),
-        )
-        .expect("spawn a session");
+        #[cfg(unix)]
+        let (shell, script) = ("", "read line; echo got:$line");
+        #[cfg(windows)]
+        let (shell, script) = ("cmd.exe", "set /p line= & call echo got:%line%");
+
+        let (client_tx, msg_rx, _pid) =
+            spawn(shell, 80, 24, Some(script), std::sync::Arc::new(|| {}))
+                .expect("spawn a session");
         // Give the shell a moment to start, then type into it: this covers
         // the reader, the writer, and the exit reporter in one pass.
-        std::thread::sleep(std::time::Duration::from_millis(400));
-        client_tx
-            .send(ClientMsg::Input(b"hello\n".to_vec()))
-            .expect("send input");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        #[cfg(unix)]
+        let input = b"hello\n";
+        #[cfg(windows)]
+        let input = b"hello\r\n";
+
         let mut text = String::new();
-        let mut exited = false;
+        let mut exit_reason = None;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::time::Instant::now() < deadline && !exited {
-            match msg_rx.recv_timeout(std::time::Duration::from_millis(200)) {
+        let mut input_sent = false;
+
+        // On Windows ConPTY, respond to initial cursor position probes before/as we send input
+        let start = std::time::Instant::now();
+        while std::time::Instant::now() < deadline && exit_reason.is_none() {
+            match msg_rx.recv_timeout(std::time::Duration::from_millis(100)) {
                 Ok(SessionMsg::Data(bytes)) => {
-                    text.push_str(&String::from_utf8_lossy(&bytes));
+                    let s = String::from_utf8_lossy(&bytes);
+                    #[cfg(windows)]
+                    if s.contains("\x1b[6n") {
+                        let _ = client_tx.send(ClientMsg::Input(b"\x1b[1;1R".to_vec()));
+                    }
+                    text.push_str(&s);
                 }
-                Ok(SessionMsg::Exited(_)) => exited = true,
+                Ok(SessionMsg::Exited(r)) => exit_reason = Some(r),
                 Ok(_) => {}
                 Err(_) => {}
+            }
+            if !input_sent && start.elapsed() >= std::time::Duration::from_millis(500) {
+                let _ = client_tx.send(ClientMsg::Input(input.to_vec()));
+                input_sent = true;
+            }
+        }
+        // Drain any trailing Data messages queued before or alongside the exit event.
+        while let Ok(msg) = msg_rx.recv_timeout(std::time::Duration::from_millis(300)) {
+            if let SessionMsg::Data(bytes) = msg {
+                text.push_str(&String::from_utf8_lossy(&bytes));
             }
         }
         assert!(
             text.contains("got:hello"),
-            "the typed line came back: {text:?}"
+            "the typed line came back: {text:?}, exit: {exit_reason:?}"
         );
-        assert!(exited, "the exit was reported");
+        assert!(exit_reason.is_some(), "the exit was reported");
     }
 
     #[test]
-    #[cfg(not(target_os = "linux"))]
-    fn without_proc_there_is_no_directory() {
-        assert!(shell_cwd(1).is_none());
+    fn non_existent_pid_has_no_directory() {
+        assert!(shell_cwd(u32::MAX).is_none());
+    }
+
+    /// The app erases an intercepted `:command` before running it in-app.
+    /// On Windows that is one backspace per character (PSReadLine leaves
+    /// Ctrl+U unbound); this proves the sequence clears the shell's pending
+    /// line and that `\r` — not `\n` — submits the line that follows.
+    #[test]
+    #[cfg(windows)]
+    fn erasing_a_typed_line_works_in_the_windows_shell() {
+        use std::time::{Duration, Instant};
+
+        // The default shell is what a pane gets; cmd.exe passes this too.
+        let (client_tx, msg_rx, _pid) =
+            spawn("", 120, 30, None, std::sync::Arc::new(|| {})).expect("spawn the default shell");
+
+        let mut text = String::new();
+        let drain = |msg_rx: &flume::Receiver<SessionMsg>,
+                     client_tx: &flume::Sender<ClientMsg>,
+                     text: &mut String,
+                     ms: u64| {
+            let deadline = Instant::now() + Duration::from_millis(ms);
+            while Instant::now() < deadline {
+                match msg_rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(SessionMsg::Data(bytes)) => {
+                        let s = String::from_utf8_lossy(&bytes);
+                        if s.contains("\x1b[6n") {
+                            let _ = client_tx.send(ClientMsg::Input(b"\x1b[1;1R".to_vec()));
+                        }
+                        text.push_str(&s);
+                    }
+                    Ok(_) => {}
+                    Err(_) => {}
+                }
+            }
+        };
+
+        drain(&msg_rx, &client_tx, &mut text, 3000); // startup
+
+        // Type a line, then erase it with one backspace per character.
+        let typed = "echo MARKER_ONE";
+        let _ = client_tx.send(ClientMsg::Input(typed.as_bytes().to_vec()));
+        std::thread::sleep(Duration::from_millis(400));
+        let _ = client_tx.send(ClientMsg::Input(crate::app::eggs::erase_bytes(typed.len())));
+        std::thread::sleep(Duration::from_millis(400));
+        // The next line must arrive clean and must submit with \r, not \n.
+        let _ = client_tx.send(ClientMsg::Input(b"echo MARKER_TWO\r".to_vec()));
+        drain(&msg_rx, &client_tx, &mut text, 2500);
+
+        let _ = client_tx.send(ClientMsg::Close);
+        println!("shell transcript >>>{text}<<<");
+        assert!(text.contains("MARKER_TWO"), "the second line ran: {text:?}");
+        assert!(
+            !text.contains("MARKER_ONEecho"),
+            "the first line was actually erased: {text:?}"
+        );
     }
 }

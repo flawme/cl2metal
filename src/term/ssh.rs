@@ -244,6 +244,9 @@ async fn run(params: SshParams, client_rx: flume::Receiver<ClientMsg>, msg_tx: M
 }
 
 /// Public-key auth from a key file, prompting for a passphrase when needed.
+///
+/// Like OpenSSH, a passphrase that does not open the key is asked for again
+/// instead of ending the session.
 async fn auth_key(
     handle: &mut russh::client::Handle<Client>,
     params: &SshParams,
@@ -252,20 +255,29 @@ async fn auth_key(
     let Some(key_path) = &params.key_path else {
         anyhow::bail!("no private key configured for {}", params.user);
     };
-    let key = match load_secret_key(key_path, params.passphrase.as_deref()) {
-        Ok(k) => k,
-        Err(first) => {
-            // Encrypted key (or missing passphrase): prompt the user once.
-            let pp = ask(
-                msg_tx,
-                SshRequest::Passphrase {
-                    prompt: format!("Passphrase for key {key_path}: "),
-                },
-            )
-            .map_err(|_| anyhow::anyhow!("key passphrase entry cancelled"))?;
-            load_secret_key(key_path, Some(&pp)).map_err(|e| {
-                anyhow::anyhow!("failed to load key {key_path}: {e} (first attempt: {first})")
-            })?
+    let mut passphrase = params.passphrase.clone();
+    let mut asked = 0;
+    let key = loop {
+        match load_secret_key(key_path, passphrase.as_deref()) {
+            Ok(key) => break key,
+            Err(e) => {
+                // A wrong passphrase and a damaged key produce the same
+                // decryption errors, so keep asking — unless the key file
+                // itself is unreadable, which no passphrase can fix.
+                if asked >= AUTH_ATTEMPTS || matches!(e, russh::keys::Error::IO(_)) {
+                    return Err(anyhow::anyhow!("failed to load key {key_path}: {e}"));
+                }
+                let prompt = if asked == 0 {
+                    format!("Passphrase for key {key_path}: ")
+                } else {
+                    format!("Passphrase for key {key_path} (did not work, try again): ")
+                };
+                asked += 1;
+                passphrase = Some(
+                    ask(msg_tx, SshRequest::Passphrase { prompt })
+                        .map_err(|_| anyhow::anyhow!("key passphrase entry cancelled"))?,
+                );
+            }
         }
     };
     let hash = handle.best_supported_rsa_hash().await?.flatten();
@@ -320,26 +332,48 @@ async fn auth_agent(
     Ok(false)
 }
 
-/// Password auth, from the keyring or an interactive prompt.
+/// How many auth attempts before the caller falls back (OpenSSH tries three
+/// times too). Applies to passwords and to key passphrases.
+const AUTH_ATTEMPTS: u32 = 3;
+
+/// Password auth: the keyring password first, then interactive retries.
+///
+/// A stored password can go stale — it changed on the server — so a rejection
+/// asks for a fresh one instead of ending the session, and asks again for the
+/// attempt it has left.
 async fn auth_password(
     handle: &mut russh::client::Handle<Client>,
     params: &SshParams,
     msg_tx: &MsgTx,
 ) -> anyhow::Result<bool> {
-    let password = match &params.password {
-        Some(p) => p.clone(),
-        None => ask(
-            msg_tx,
-            SshRequest::Password {
-                prompt: format!("Password for {}@{}: ", params.user, params.host),
-            },
-        )
-        .map_err(|_| anyhow::anyhow!("password entry cancelled"))?,
-    };
-    Ok(handle
-        .authenticate_password(params.user.clone(), password)
-        .await?
-        .success())
+    let mut stored = params.password.clone();
+    for attempt in 1..=AUTH_ATTEMPTS {
+        let password = match stored.take() {
+            Some(stored) => stored,
+            None => {
+                let prompt = if attempt == 1 {
+                    format!("Password for {}@{}: ", params.user, params.host)
+                } else {
+                    let left = AUTH_ATTEMPTS + 1 - attempt;
+                    let tries = if left == 1 { "try" } else { "tries" };
+                    format!(
+                        "Password for {}@{} (authentication failed, {left} {tries} left): ",
+                        params.user, params.host
+                    )
+                };
+                ask(msg_tx, SshRequest::Password { prompt })
+                    .map_err(|_| anyhow::anyhow!("password entry cancelled"))?
+            }
+        };
+        if handle
+            .authenticate_password(params.user.clone(), password)
+            .await?
+            .success()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Keyboard-interactive auth (MFA, one-time codes, enterprise servers).

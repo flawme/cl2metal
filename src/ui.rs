@@ -60,10 +60,12 @@ pub enum Overlay {
     PasteConfirm {
         text: String,
     },
-    /// Edit an SSH profile (a new one when `is_new`).
+    /// Edit an SSH profile. `original` is the name the profile had when the
+    /// editor opened (`None` for a new host): it is what makes a rename edit
+    /// the profile in place and lets the editor delete it.
     Profile {
         profile: SshProfile,
-        is_new: bool,
+        original: Option<String>,
         error: Option<String>,
     },
     /// Edit the editor's keybindings.
@@ -79,7 +81,10 @@ pub enum Overlay {
 /// What a close confirmation is about to close.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum CloseScope {
-    Pane { tab: usize, pane: usize },
+    Pane {
+        tab: usize,
+        pane: usize,
+    },
     Tab(usize),
     /// The whole window.
     App,
@@ -1133,9 +1138,9 @@ pub fn show_settings(
                     ui.add_space(4.0);
                 }
                 if let Some(i) = remove {
-                    let name = draft.profiles[i].name.clone();
-                    crate::config::secrets::delete_password(&name);
-                    crate::config::secrets::delete_passphrase(&name);
+                    // The keyring entries go with it when the settings are
+                    // saved (on cancel the profile stays, so its secrets must
+                    // stay too).
                     draft.profiles.remove(i);
                 }
 
@@ -1299,9 +1304,11 @@ pub fn show_view_image(
     let mut submit = None;
     modal_frame(ui, theme, "View an image", |ui| {
         ui.label(
-            egui::RichText::new("a picture to look at — png, jpg, webp, gif, bmp…; click the picture to close it")
-                .size(11.5)
-                .color(color32(theme.ui.text_dim)),
+            egui::RichText::new(
+                "a picture to look at — png, jpg, webp, gif, bmp…; click the picture to close it",
+            )
+            .size(11.5)
+            .color(color32(theme.ui.text_dim)),
         );
         ui.add_space(6.0);
         let resp = ui.add(
@@ -1343,10 +1350,8 @@ pub fn show_image(
     let size = texture.size_vec2().max(egui::vec2(1.0, 1.0));
     let bounds = egui::vec2(screen.width() * 0.8, screen.height() * 0.8);
     let scale = (bounds.x / size.x).min(bounds.y / size.y);
-    let rect = egui::Rect::from_center_size(
-        screen.center(),
-        egui::vec2(size.x * scale, size.y * scale),
-    );
+    let rect =
+        egui::Rect::from_center_size(screen.center(), egui::vec2(size.x * scale, size.y * scale));
     let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
     painter.image(texture.id(), rect, uv, egui::Color32::WHITE);
     // The path it came from, along the bottom.
@@ -1357,8 +1362,12 @@ pub fn show_image(
         egui::FontId::monospace(12.0),
         with_alpha(color32(theme.ui.text), 0.8),
     );
-    ui.interact(screen, egui::Id::new("cl2metal-image-view"), egui::Sense::click())
-        .clicked()
+    ui.interact(
+        screen,
+        egui::Id::new("cl2metal-image-view"),
+        egui::Sense::click(),
+    )
+    .clicked()
 }
 
 // ---------------------------------------------------------------------------
@@ -1459,20 +1468,27 @@ fn edit_optional(ui: &mut egui::Ui, value: &mut Option<String>, hint: &str) {
     }
 }
 
-/// Draw the SSH profile editor. Returns `(close, save)`.
+/// Draw the SSH profile editor. Returns `(close, save, remove)`.
 ///
-/// Passwords are never edited here: they live in the system keyring, and the
-/// profile only records *that* a password is used.
+/// `original` names the profile being edited, when there is one: the editor
+/// offers to delete it, and a rename edits it in place instead of adding a
+/// second host. Passwords are never edited here: they live in the system
+/// keyring, and the profile only records *that* a password is used.
 pub fn show_profile(
     ui: &mut egui::Ui,
     theme: &Theme,
     profile: &mut SshProfile,
-    is_new: bool,
+    original: Option<&str>,
     error: &mut Option<String>,
-) -> (bool, bool) {
+) -> (bool, bool, bool) {
     let mut close = false;
     let mut save = false;
-    let title = if is_new { "New host" } else { "Edit host" };
+    let mut remove = false;
+    let title = if original.is_none() {
+        "New host"
+    } else {
+        "Edit host"
+    };
     modal_frame(ui, theme, title, |ui| {
         egui::Grid::new("profile-grid")
             .num_columns(2)
@@ -1568,9 +1584,17 @@ pub fn show_profile(
             if secondary_button(ui, theme, "Cancel", 88.0).clicked() {
                 close = true;
             }
+            if original.is_some() {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let label = egui::RichText::new("Remove host").color(color32(theme.ui.danger));
+                    if ui.button(label).clicked() {
+                        remove = true;
+                    }
+                });
+            }
         });
     });
-    (close, save)
+    (close, save, remove)
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,8 @@
 //! Unit tests for the application layer.
 
-use super::background::{bg_alpha_for, load_image, panel_alpha_for, read_cache, ui_alpha_for, write_cache};
+use super::background::{
+    bg_alpha_for, load_image, panel_alpha_for, read_cache, ui_alpha_for, write_cache,
+};
 use super::eggs::{EasterEgg, hidden_eggs, hue_rotate, matrix_char};
 use super::events::shell_quote;
 use super::*;
@@ -200,6 +202,34 @@ fn internal_commands_with_arguments_parse() {
         parse_internal(":ssh"),
         Some(InternalCmd::Usage(_))
     ));
+}
+
+#[test]
+fn the_shell_erasure_covers_exactly_the_typed_command() {
+    use super::eggs::{alias_erase_len, erase_bytes, internal_command_at};
+    // The offset is the ':' of the last `:word` on the prompt line.
+    let line = "PS C:\\Users\\me> :bench 8";
+    assert_eq!(internal_command_at(line), line.find(":bench"));
+    assert_eq!(internal_command_at(":info"), Some(0));
+    assert_eq!(internal_command_at("foo:info"), None);
+    assert_eq!(internal_command_at("http://x/:info"), None);
+    // Aliases count as the whole token, path prefix included.
+    assert_eq!(
+        alias_erase_len("./cl2metal --party", "cl2metal --party"),
+        18
+    );
+    assert_eq!(
+        alias_erase_len("mehul@box:~$ cl2metal --matrix", "cl2metal --matrix"),
+        17
+    );
+    // Ctrl+U where readline understands it; backspaces where it does not.
+    #[cfg(not(windows))]
+    assert_eq!(erase_bytes(8), vec![0x15]);
+    #[cfg(windows)]
+    {
+        assert_eq!(erase_bytes(8), vec![0x08; 8]);
+        assert_eq!(erase_bytes(0), Vec::<u8>::new());
+    }
 }
 
 #[test]
@@ -407,6 +437,17 @@ fn bench_refuses_remote_and_dead_panes() {
     assert!(
         bench_refusal(TabKind::Local, true).is_some_and(|r| r.contains("no live session")),
         "a dead pane must be refused"
+    );
+}
+
+#[test]
+fn internal_commands_are_refused_outside_local_panes() {
+    use super::eggs::internal_refusal;
+    // The internal namespace drives this app, so only local panes run it.
+    assert_eq!(internal_refusal(TabKind::Local), None);
+    assert!(
+        internal_refusal(TabKind::Ssh).is_some_and(|r| r.contains("local pane")),
+        "an SSH pane must be refused the way `:bench` is"
     );
 }
 

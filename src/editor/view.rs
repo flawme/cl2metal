@@ -188,10 +188,7 @@ impl Editor {
         const MIN_TREE_WIDTH: f32 = 140.0;
         let mut pane_area = area;
         if self.tree.open {
-            let width = self
-                .tree
-                .width
-                .clamp(MIN_TREE_WIDTH, area.width() * 0.6);
+            let width = self.tree.width.clamp(MIN_TREE_WIDTH, area.width() * 0.6);
             self.tree.width = width;
             let tree_rect = egui::Rect::from_min_size(area.min, egui::vec2(width, area.height()));
             self.draw_tree(ui, tree_rect, style, &font, metrics);
@@ -685,13 +682,8 @@ impl Editor {
             );
             if bar.dragged() || bar.clicked() {
                 if let Some(point) = bar.interact_pointer_pos() {
-                    let target = scroll_at_pointer(
-                        point.y,
-                        track.min.y,
-                        travel,
-                        thumb_h,
-                        max_scroll,
-                    );
+                    let target =
+                        scroll_at_pointer(point.y, track.min.y, travel, thumb_h, max_scroll);
                     let buf = &mut self.buffers[index];
                     buf.scroll[1] = target;
                     // The thumb is the position: no easing lag while dragging.
@@ -711,10 +703,8 @@ impl Editor {
 
         // Mouse: click to place the cursor, drag to select. The right-hand
         // strip belongs to the scrollbar, so it is left out of this hit area.
-        let text_hit = egui::Rect::from_min_max(
-            rect.min,
-            egui::pos2(rect.max.x - 12.0, rect.max.y),
-        );
+        let text_hit =
+            egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x - 12.0, rect.max.y));
         let response = ui.interact(
             text_hit,
             ui.id().with(("editor-pane", index)),

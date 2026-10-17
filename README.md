@@ -20,6 +20,8 @@ A sleek, minimal, secure terminal + SSH client — GPU-rendered with `wgpu` and
 
 **SSH**
 - Password, public-key, **ssh-agent** and **keyboard-interactive** (MFA) auth
+- Password auth retries (three tries, OpenSSH-style): a stored password that
+  the server rejects prompts for a fresh one instead of ending the session
 - Host key verification against `~/.ssh/known_hosts` (TOFU prompt, MITM refusal)
 - **Jump host** (`ProxyJump`), **local forwards** (`-L`), **remote forwards**
   (`-R`) and **dynamic SOCKS5 forwards** (`-D`)
@@ -32,7 +34,10 @@ A sleek, minimal, secure terminal + SSH client — GPU-rendered with `wgpu` and
 - A host sidebar beside the terminal: search, groups, favourites, recents and a
   live connection dot per host
 - Profile editor for name, host, port, user, auth, key file, group, jump host
-  and all three forward kinds; duplicate and delete from the sidebar
+  and all three forward kinds; right-click a host to duplicate, star or delete
+  it, or use Remove host in the editor; renaming edits the host in place and
+  moves its keyring secret, and changing the auth method drops the secret that
+  no longer applies
 - **SFTP browser** (`Ctrl+Shift+S` opens the workspace, then the SFTP entry in
   the palette): directory listing with permissions and sizes, navigation,
   download, upload, mkdir, rename, delete, progress and cancel
@@ -206,8 +211,11 @@ the tab bar, and `Ctrl+Shift+Up/Down`.
 
 ## Internal commands
 
-Type these at the prompt: the line is intercepted and cleared with `Ctrl+U`, so
-the shell never sees it.
+Type these at the prompt: the line is intercepted and erased from the shell's
+own editor (Ctrl+U on unix, backspaces on Windows), so the shell never sees it.
+They are a local-pane feature: in an SSH pane the line is cleared and refused
+with a notice, the way `:bench` is — the command drives this app on this
+machine, not the remote host.
 
 | Command | Effect |
 | --- | --- |
@@ -266,7 +274,7 @@ src/
   app/clipboard.rs clipboard and X11 primary selection
   app/background.rs wallpaper loading (off-thread, cached) and alpha values
   app/eggs.rs      internal commands (`:info`, `:matrix`, …) and easter eggs
-  app/sysinfo.rs   the `:info` panel: /proc and session facts
+  app/sysinfo.rs   the `:info` panel: per-OS facts (/proc, Win32 counters) and session facts
   app/ssh_mode.rs  the SSH workspace sidebar: hosts, groups, favourites
   app/sftp_panel.rs the SFTP browser view
   app/editor_view.rs hosting the editor: theme colours, key routing, remote saves
@@ -296,12 +304,13 @@ Requires a Vulkan/Metal/DX12-capable GPU (wgpu backend).
 ## Platforms
 
 Linux is the primary target; Windows builds and runs from the same tree. The
-OS-specific code lives in one file per platform, so a new platform is a new
-file plus the wiring:
+OS-specific code lives in one module per platform (a file, or a folder when
+it needs helpers), so a new platform is a new module plus the wiring:
 
 Building on Windows needs **CMake** on `PATH`: the SSH crypto backend
-(`aws-lc-sys`) builds C with it. NASM is optional — when it is absent the
-backend uses its prebuilt assembly objects.
+(`aws-lc-sys`) builds C with it. NASM is optional — the repo pins
+`AWS_LC_SYS_PREBUILT_NASM=1` (`.cargo/config.toml`), so the backend uses its
+prebuilt assembly objects.
 
 | | Linux | Windows |
 | --- | --- | --- |
@@ -311,14 +320,15 @@ backend uses its prebuilt assembly objects.
 | Default shell | `$SHELL`, else `/bin/bash` | `pwsh.exe`, else `powershell.exe`, else `cmd.exe` |
 | Desktop notifications | `notify-send` | a PowerShell balloon |
 | Shell integration (OSC 133 marks, prompt jumping, exit-status dot) | bash/zsh hooks | not yet |
-| `--install-desktop` | `.desktop` entry + icon | not applicable (pin the exe instead) |
+| `--install-desktop` | `.desktop` entry + icon | a Start Menu shortcut |
 | Primary selection (middle-click paste) | X11 | not applicable |
 
 Where the code lives:
 
 ```
-src/platform/{linux,windows}.rs   notifier, desktop install, default font
-src/app/sysinfo/{linux,windows}.rs  the :info panel's readers
+src/platform/linux.rs, src/platform/windows/       notifier, desktop install, default font
+src/app/sysinfo/linux.rs, src/app/sysinfo/windows/  the :info panel's readers
+src/term/linux.rs, src/term/windows/               /proc walk vs. Win32 process inspection
 ```
 
 CI runs `clippy` and the test suite on both `ubuntu-latest` and
@@ -338,6 +348,10 @@ absolute path of the binary that ran the command, copies the icon to
 menu database with `update-desktop-database` when it is installed. The app then
 appears in the application menu and in file managers' "Open with" lists. Every
 path written is printed to stdout.
+
+On Windows, the same command writes `cl2metal.lnk` into the Start Menu
+(`%APPDATA%\Microsoft\Windows\Start Menu\Programs`), pointing at the running
+executable, so the app appears in the Start Menu and in search.
 
 ```sh
 cl2metal --version    # print the version and exit (also -V)

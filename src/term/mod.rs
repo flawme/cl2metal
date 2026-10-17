@@ -5,20 +5,26 @@ pub mod input;
 /// bash/zsh OSC 133 hooks: a unix mechanism.
 #[cfg(unix)]
 pub mod integration;
+#[cfg(target_os = "linux")]
+pub mod linux;
 pub mod local;
 pub mod sftp;
 pub mod ssh;
+#[cfg(windows)]
+pub mod windows;
 
 /// A callback the session threads use to ask the UI for a repaint.
 ///
 /// The session layer knows nothing about egui; the app hands it a closure.
 pub type Waker = std::sync::Arc<dyn Fn() + Send + Sync>;
 
-/// The runtime the terminal's sessions run on.
+/// The runtime the unix terminal sessions run on.
 ///
 /// One shared, fixed-size pool instead of a thread per pane: splitting a
 /// pane adds tasks, not threads, so the thread count stops growing with
-/// the number of panes.
+/// the number of panes. Windows keeps a thread per loop (there is no
+/// `AsyncFd` there), so it never builds this pool.
+#[cfg(unix)]
 pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
     RUNTIME.get_or_init(|| {
@@ -415,10 +421,8 @@ impl TermCore {
                         // theme's, so a probing CLI can pick light or dark.
                         let [r, g, b] = self.bg_rgb;
                         self.responses.push(
-                            format!(
-                                "\x1b]11;rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}\x07"
-                            )
-                            .into_bytes(),
+                            format!("\x1b]11;rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}\x07")
+                                .into_bytes(),
                         );
                         true
                     } else {
@@ -698,8 +702,7 @@ mod tests {
         assert_eq!(responses[2], b"\x1b[?2026;2$y", "sync output: reset");
         assert_eq!(responses[3], b"\x1b[?2027;2$y", "grapheme clusters: reset");
         assert_eq!(
-            responses[4],
-            b"\x1b]11;rgb:1e1e/1e1e/1e1e\x07",
+            responses[4], b"\x1b]11;rgb:1e1e/1e1e/1e1e\x07",
             "the theme's background"
         );
         assert!(

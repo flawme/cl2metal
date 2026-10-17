@@ -32,7 +32,8 @@ fn cursor(ed: &Editor) -> Pos {
 
 /// A pane geometry for the scroll tests: `rows` visible rows of 20 px.
 fn pane(rows: usize) -> super::view::PaneGeometry {
-    let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, rows as f32 * 20.0));
+    let rect =
+        egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, rows as f32 * 20.0));
     super::view::PaneGeometry {
         rect,
         text: rect,
@@ -187,7 +188,8 @@ fn undoing_back_to_the_saved_state_clears_the_modified_marker() {
 
 #[test]
 fn typing_after_a_save_marks_the_buffer_modified() {
-    let dir = std::env::temp_dir().join(format!("cl2metal-editor-dirty-run-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("cl2metal-editor-dirty-run-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("run.txt");
     std::fs::write(&path, "one\n").unwrap();
@@ -847,7 +849,10 @@ fn deleting_a_file_from_the_tree_closes_or_detaches_its_buffers() {
     // The buffer of a deleted DIRTY file keeps its text but loses its path,
     // so saving it asks for a name instead of resurrecting the file.
     ed.tree_deleted(&dirty);
-    assert!(ed.buffers[0].path.is_none(), "detached from the deleted path");
+    assert!(
+        ed.buffers[0].path.is_none(),
+        "detached from the deleted path"
+    );
     assert_eq!(ed.buffers[0].text(), "dirty\n", "the text survives");
 
     // Deleting a folder reaches the buffers of the files inside it.
@@ -859,7 +864,10 @@ fn deleting_a_file_from_the_tree_closes_or_detaches_its_buffers() {
     ed2.buffers[0] = Buffer::open(&inside).unwrap();
     ed2.buffers[0].dirty = true;
     ed2.tree_deleted(&inner);
-    assert!(ed2.buffers[0].path.is_none(), "a folder delete detaches too");
+    assert!(
+        ed2.buffers[0].path.is_none(),
+        "a folder delete detaches too"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -871,12 +879,8 @@ fn deleting_from_the_tree_trashes_instead_of_erasing() {
     let name = "only-trash-me.txt";
     let path = dir.join(name);
     std::fs::write(&path, "gone\n").unwrap();
-    let trash_files = dirs::home_dir()
-        .unwrap()
-        .join(".local/share/Trash/files");
-    let trash_info = dirs::home_dir()
-        .unwrap()
-        .join(".local/share/Trash/info");
+    let trash_files = dirs::home_dir().unwrap().join(".local/share/Trash/files");
+    let trash_info = dirs::home_dir().unwrap().join(".local/share/Trash/info");
     // A previous run that died mid-test may have left its copy behind;
     // clear the way so the fresh one lands under its own plain name.
     for base in [&trash_files, &trash_info] {
@@ -920,7 +924,8 @@ fn deleting_from_the_tree_trashes_instead_of_erasing() {
         .map(|(m, _)| m.as_str())
         .unwrap_or_default();
     assert!(message.contains("moved to the trash"), "says so: {message}");
-    // Recoverable, not erased: the file sits in the system trash.
+    // Recoverable, not erased: on Linux the file sits in the freedesktop trash.
+    #[cfg(target_os = "linux")]
     assert!(
         trash_files.join(name).exists(),
         "the entry is in the trash, waiting to be restored"
@@ -954,7 +959,10 @@ fn a_file_deleted_on_disk_stops_being_edited_in_real_time() {
     // detached from the path that no longer exists.
     assert_eq!(ed.buffers.len(), 1, "only the dirty buffer is left");
     assert_eq!(ed.buffers[0].text(), "dirty\n", "the unsaved text survives");
-    assert!(ed.buffers[0].path.is_none(), "the survivor is the detached dirty one");
+    assert!(
+        ed.buffers[0].path.is_none(),
+        "the survivor is the detached dirty one"
+    );
     let message = ed
         .message
         .as_ref()
@@ -980,7 +988,10 @@ fn a_file_deleted_on_disk_stops_being_edited_in_real_time() {
     ed3.check_external_changes(1.0);
     ed3.check_external_changes(2.0);
     assert!(ed3.buffers[0].scratch, "landed on the no-file buffer");
-    assert!(ed3.buffers[0].path.is_none(), "the closed file is not open again");
+    assert!(
+        ed3.buffers[0].path.is_none(),
+        "the closed file is not open again"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1190,7 +1201,11 @@ fn opening_a_missing_file_reports_it_and_opens_nothing() {
     assert!(ed.open_path(&dir.join("not-here.txt")));
     wait_for_load(&mut ed);
     assert_eq!(ed.buffers.len(), 1, "nothing was opened");
-    let message = ed.message.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
+    let message = ed
+        .message
+        .as_ref()
+        .map(|(m, _)| m.clone())
+        .unwrap_or_default();
     assert!(
         message.contains("cannot open"),
         "the user is told why: {message:?}"

@@ -31,6 +31,33 @@ pub(crate) enum HostAction {
     NewHost,
 }
 
+/// The keyring edits a profile change implies, as data.
+///
+/// See [`secret_edit`] for what each field means.
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) struct SecretEdit {
+    /// Secrets to copy from the old profile name to the new one.
+    pub(crate) rename: Option<(String, String)>,
+    /// The stored password no longer applies to the profile.
+    pub(crate) drop_password: bool,
+    /// The stored key passphrase no longer applies to the profile.
+    pub(crate) drop_passphrase: bool,
+}
+
+/// What an edit to a profile does to its keyring entries.
+///
+/// Secrets are keyed by profile name, so a rename re-keys them, and switching
+/// the auth method away leaves entries that no longer apply — dropping those
+/// keeps a stale password from being used behind the user's back later.
+/// Returned as data so the bookkeeping is testable without a keyring.
+pub(crate) fn secret_edit(old: &SshProfile, new: &SshProfile) -> SecretEdit {
+    SecretEdit {
+        rename: (old.name != new.name).then(|| (old.name.clone(), new.name.clone())),
+        drop_password: old.auth == AuthMethod::Password && new.auth != AuthMethod::Password,
+        drop_passphrase: old.auth == AuthMethod::Key && new.auth != AuthMethod::Key,
+    }
+}
+
 impl App {
     /// Turn SSH Mode on or off.
     pub(crate) fn toggle_ssh_mode(&mut self) {
@@ -260,9 +287,32 @@ impl App {
             if response.clicked() {
                 action = Some(HostAction::Connect(row.name.clone()));
             }
-            if response.secondary_clicked() {
-                action = Some(HostAction::Edit(row.name.clone()));
-            }
+            // Right-click: managing the host, delete included.
+            response.context_menu(|ui| {
+                let name = row.name.clone();
+                if ui.button("Connect").clicked() {
+                    action = Some(HostAction::Connect(name.clone()));
+                    ui.close();
+                }
+                if ui.button("Edit…").clicked() {
+                    action = Some(HostAction::Edit(name.clone()));
+                    ui.close();
+                }
+                if ui.button("Duplicate").clicked() {
+                    action = Some(HostAction::Duplicate(name.clone()));
+                    ui.close();
+                }
+                let star = if row.favorite { "Unstar" } else { "Star" };
+                if ui.button(star).clicked() {
+                    action = Some(HostAction::ToggleFavorite(name.clone()));
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button("Delete").clicked() {
+                    action = Some(HostAction::Delete(name.clone()));
+                    ui.close();
+                }
+            });
             // A status dot: green when a session is open, dim otherwise.
             let dot = egui::pos2(row_rect.min.x + 8.0, row_rect.center().y);
             let color = if row.connected {
@@ -325,7 +375,10 @@ impl App {
         painter.text(
             footer.min,
             egui::Align2::LEFT_CENTER,
-            format!("{} hosts", self.config.profiles.len()),
+            format!(
+                "{} hosts — right-click to manage",
+                self.config.profiles.len()
+            ),
             egui::FontId::new(10.0, egui::FontFamily::Monospace),
             color32(theme.ui.text_dim),
         );
@@ -335,8 +388,64 @@ impl App {
         }
     }
 
+    /// Apply a [`SecretEdit`] to the keyring. `name` is the profile's name
+    /// after the edit, where entries are dropped.
+    fn apply_secret_edit(&self, edit: &SecretEdit, name: &str) {
+        if let Some((from, to)) = &edit.rename {
+            if let Some(password) = secrets::load_password(from) {
+                let _ = secrets::store_password(to, &password);
+            }
+            if let Some(passphrase) = secrets::load_passphrase(from) {
+                let _ = secrets::store_passphrase(to, &passphrase);
+            }
+            secrets::delete_password(from);
+            secrets::delete_passphrase(from);
+        }
+        if edit.drop_password {
+            secrets::delete_password(name);
+        }
+        if edit.drop_passphrase {
+            secrets::delete_passphrase(name);
+        }
+    }
+
+    /// Drop the keyring entries a wholesale settings edit invalidated.
+    ///
+    /// A profile that disappeared was removed, and its secrets go with it. A
+    /// profile that stayed keeps its name, so only an auth-method change
+    /// invalidates anything. (A rename in the settings grid re-prompts on the
+    /// next connect: the grid gives no way to tell a rename from a removal
+    /// plus an addition.)
+    pub(crate) fn drop_stale_secrets(&self, original: &[SshProfile], new: &[SshProfile]) {
+        for old in original {
+            match new.iter().find(|p| p.name == old.name) {
+                Some(new_profile) => {
+                    let edit = secret_edit(old, new_profile);
+                    if edit.drop_password {
+                        secrets::delete_password(&old.name);
+                    }
+                    if edit.drop_passphrase {
+                        secrets::delete_passphrase(&old.name);
+                    }
+                }
+                None => {
+                    secrets::delete_password(&old.name);
+                    secrets::delete_passphrase(&old.name);
+                }
+            }
+        }
+    }
+
     /// Validate and store a profile from the editor.
-    pub(crate) fn save_profile(&mut self, profile: SshProfile) -> Result<(), String> {
+    ///
+    /// `original` is the name the edited profile had when the editor opened
+    /// (`None` for a new host): it is what makes a rename edit the profile in
+    /// place — keyring secrets included — instead of adding a second one.
+    pub(crate) fn save_profile(
+        &mut self,
+        profile: SshProfile,
+        original: Option<&str>,
+    ) -> Result<(), String> {
         let name = profile.name.trim().to_owned();
         if name.is_empty() {
             return Err("the host needs a name".to_owned());
@@ -354,8 +463,18 @@ impl App {
         profile.name = name.clone();
         profile.host = profile.host.trim().to_owned();
         profile.user = profile.user.trim().to_owned();
-        match self.config.profiles.iter().position(|p| p.name == name) {
-            Some(at) => self.config.profiles[at] = profile,
+        let at = original.and_then(|orig| self.config.profiles.iter().position(|p| p.name == orig));
+        if let Some(taken) = self.config.profiles.iter().position(|p| p.name == name)
+            && Some(taken) != at
+        {
+            return Err(format!("a host named '{name}' already exists"));
+        }
+        match at {
+            Some(at) => {
+                let old = self.config.profiles[at].clone();
+                self.apply_secret_edit(&secret_edit(&old, &profile), &name);
+                self.config.profiles[at] = profile;
+            }
             None => self.config.profiles.push(profile),
         }
         self.persist_config();
@@ -384,7 +503,9 @@ impl App {
             name: "new host".to_owned(),
             host: String::new(),
             port: 22,
-            user: std::env::var("USER").unwrap_or_else(|_| "root".to_owned()),
+            user: std::env::var("USER")
+                .or_else(|_| std::env::var("USERNAME"))
+                .unwrap_or_else(|_| "root".to_owned()),
             auth: AuthMethod::Agent,
             key_path: None,
             proxy_jump: None,
@@ -396,7 +517,7 @@ impl App {
         };
         self.overlay = Overlay::Profile {
             profile,
-            is_new: true,
+            original: None,
             error: None,
         };
     }
@@ -414,7 +535,7 @@ impl App {
         };
         self.overlay = Overlay::Profile {
             profile,
-            is_new: false,
+            original: Some(name.to_owned()),
             error: None,
         };
     }

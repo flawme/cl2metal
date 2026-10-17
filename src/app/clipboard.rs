@@ -55,7 +55,11 @@ impl App {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = cb.set_text(text.to_owned());
+            // Windows and other non-X11 platforms do not have a separate primary
+            // selection; do not overwrite the system clipboard on text selection
+            // unless copy_on_select is explicitly enabled in app settings.
+            let _ = cb;
+            let _ = text;
         }
     }
 }

@@ -64,6 +64,37 @@ fn host_actions_name_the_profile_they_act_on() {
 }
 
 #[test]
+fn a_profile_edit_rekeys_or_drops_its_secrets() {
+    use super::ssh_mode::secret_edit;
+    let mut old = profile("prod", "prod.example.com", None);
+    old.auth = AuthMethod::Password;
+
+    // Renaming re-keys whatever the new auth still uses.
+    let mut renamed = old.clone();
+    renamed.name = "prod-2".to_owned();
+    let edit = secret_edit(&old, &renamed);
+    assert_eq!(edit.rename, Some(("prod".to_owned(), "prod-2".to_owned())));
+    assert!(!edit.drop_password && !edit.drop_passphrase);
+
+    // Switching away from the password drops the stored one, so a stale
+    // secret cannot be used behind the user's back later.
+    let mut agent = old.clone();
+    agent.auth = AuthMethod::Agent;
+    let edit = secret_edit(&old, &agent);
+    assert!(edit.rename.is_none());
+    assert!(edit.drop_password);
+    assert!(!edit.drop_passphrase);
+
+    // The same drop applies to a key's passphrase.
+    old.auth = AuthMethod::Key;
+    let mut password = old.clone();
+    password.auth = AuthMethod::Password;
+    let edit = secret_edit(&old, &password);
+    assert!(edit.drop_passphrase);
+    assert!(!edit.drop_password);
+}
+
+#[test]
 fn editor_settings_round_trip_through_the_config() {
     let config = crate::config::EditorConfig {
         tab_width: 2,

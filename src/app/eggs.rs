@@ -2,10 +2,13 @@
 //! Matrix rain.
 //!
 //! Commands typed at the prompt are handled by the app itself when they start
-//! with a colon (`:info`, `:matrix`, `:party`, `:42`, `:help`): the line is
-//! cleared with Ctrl+U and never reaches the shell. The long `cl2metal --x`
-//! forms still work as aliases. The eggs are also reachable from the Konami
-//! code and from hidden palette entries.
+//! with a colon (`:info`, `:matrix`, `:party`, `:42`, `:help`): the shell's
+//! copy of the line is erased (Ctrl+U on unix, backspaces on Windows) and the
+//! command never reaches the shell. Only local panes run them: an SSH pane
+//! refuses the line with a notice, the way `:bench` is — the command drives
+//! this app, not the remote host. The long `cl2metal --x` forms still work as
+//! aliases. The eggs are also reachable from the Konami code and from hidden
+//! palette entries.
 
 use super::*;
 
@@ -71,6 +74,51 @@ pub(crate) fn typed_command(line: &str) -> Option<&str> {
     Some(rest)
 }
 
+/// The byte offset the last `:word` on the line starts at.
+///
+/// That is where the internal command's own text begins, so the offset also
+/// tells how much of the line the shell's editor must erase.
+pub(crate) fn internal_command_at(line: &str) -> Option<usize> {
+    let line = line.trim_end();
+    line.char_indices()
+        .filter(|(i, c)| *c == ':' && (*i == 0 || line[..*i].ends_with(char::is_whitespace)))
+        .map(|(i, _)| i)
+        .next_back()
+}
+
+/// How many characters an alias typed at the prompt covers.
+///
+/// The whole token counts, so a `./cl2metal --party` invocation is erased in
+/// one go.
+pub(crate) fn alias_erase_len(line: &str, suffix: &str) -> usize {
+    let start = line.len() - suffix.len();
+    let word_start = line[..start]
+        .char_indices()
+        .rev()
+        .find(|(_, c)| c.is_whitespace())
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
+    line[word_start..].chars().count()
+}
+
+/// The bytes that erase a typed command from the shell editor's line.
+///
+/// The unix line editors (readline) kill the line with Ctrl+U. The Windows
+/// shells have no equivalent — PSReadLine leaves Ctrl+U unbound and the
+/// console's own editor does not know it — so there the line is erased with
+/// one backspace per character, which every editor understands.
+pub(crate) fn erase_bytes(chars: usize) -> Vec<u8> {
+    #[cfg(windows)]
+    {
+        vec![0x08; chars.min(4096)]
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = chars;
+        vec![0x15]
+    }
+}
+
 /// Parse a line typed at the prompt as an internal command.
 ///
 /// The line carries the shell prompt, so the command is looked up as the last
@@ -78,11 +126,7 @@ pub(crate) fn typed_command(line: &str) -> Option<&str> {
 /// not.
 pub(crate) fn parse_internal(line: &str) -> Option<InternalCmd> {
     let line = line.trim_end();
-    let start = line
-        .char_indices()
-        .filter(|(i, c)| *c == ':' && (*i == 0 || line[..*i].ends_with(char::is_whitespace)))
-        .map(|(i, _)| i)
-        .next_back()?;
+    let start = internal_command_at(line)?;
     let rest = &line[start + 1..];
     let (name, args) = match rest.split_once(char::is_whitespace) {
         Some((name, args)) => (name, args.trim()),
@@ -235,6 +279,15 @@ pub(crate) fn bench_command_line(exe: &str, secs: f32, cols: usize, rows: usize)
     format!("{exe} --bench-frames {secs:.0} {cols} {rows}")
 }
 
+/// Why a typed internal command cannot run in a pane, if it cannot.
+///
+/// The internal namespace drives this app on this machine, so a remote pane
+/// gets the same refusal as `:bench`: the shell on the far end would run
+/// something else entirely.
+pub(crate) fn internal_refusal(kind: TabKind) -> Option<&'static str> {
+    (kind != TabKind::Local).then_some("run this in a local pane")
+}
+
 /// Why `:bench` cannot run in a pane, if it cannot.
 ///
 /// The child is this binary, so it only exists on this machine: an SSH pane
@@ -316,32 +369,52 @@ impl App {
     /// Run a hidden command typed at the prompt.
     ///
     /// Returns true when the line was one: it is cleared and never reaches the
-    /// shell.
+    /// shell. Outside a local pane the line is only refused: the command
+    /// drives this app, not the machine on the far end of the pane.
     pub(crate) fn try_typed_egg(&mut self, ctx: &egui::Context) -> bool {
         let Some(line) = self.input_line() else {
             return false;
         };
+        let refusal = internal_refusal(self.tabs[self.active].kind);
         // The short internal namespace, handled by the app itself.
         if let Some(cmd) = parse_internal(&line) {
-            // Ctrl+U kills the line, so the shell never runs it.
-            self.send_input(vec![0x15]);
+            // Erase the shell's copy of the line, so it never runs it.
+            if let Some(start) = internal_command_at(&line) {
+                self.erase_pending_line(line[start..].chars().count());
+                if let Some(reason) = refusal {
+                    let name = line[start + 1..].split_whitespace().next().unwrap_or("");
+                    self.toast = Some((format!("{name}: {reason}"), self.now));
+                    return true;
+                }
+            }
             self.run_internal(cmd, ctx);
             return true;
         }
         // Long-form aliases, kept for muscle memory.
-        let egg = if line.ends_with("cl2metal --party") {
-            EasterEgg::Party
-        } else if line.ends_with("cl2metal --matrix") {
-            EasterEgg::Matrix
-        } else if line.ends_with("cl2metal --42") {
-            EasterEgg::Answer
-        } else {
+        let alias = [
+            ("cl2metal --party", EasterEgg::Party),
+            ("cl2metal --matrix", EasterEgg::Matrix),
+            ("cl2metal --42", EasterEgg::Answer),
+        ]
+        .into_iter()
+        .find(|(suffix, _)| line.ends_with(suffix));
+        let Some((suffix, egg)) = alias else {
             return false;
         };
-        // Ctrl+U kills the line, so the shell never runs it.
-        self.send_input(vec![0x15]);
+        // Erase the whole token the alias was typed as (`./cl2metal --x`
+        // counts as one).
+        self.erase_pending_line(alias_erase_len(&line, suffix));
+        if let Some(reason) = refusal {
+            self.toast = Some((format!("{suffix}: {reason}"), self.now));
+            return true;
+        }
         self.start_easter_egg(egg, ctx);
         true
+    }
+
+    /// Erase the shell editor's pending copy of a typed line.
+    fn erase_pending_line(&mut self, chars: usize) {
+        self.send_input(erase_bytes(chars));
     }
 
     /// Run an internal command.
@@ -465,7 +538,11 @@ impl App {
             worst_ui_ms: 0.0,
             sum_ui_ms: 0.0,
         });
-        self.send_input(format!("{line}\n").into_bytes());
+        // `\r` is the Enter a pty expects on every platform: readline maps it
+        // back to newline, and the Windows console — where plain `\n` would
+        // merely insert a line break into the editor's buffer — only submits
+        // on carriage return.
+        self.send_input(format!("{line}\r").into_bytes());
         self.toast = Some((format!("bench: {secs:.0}s in {cols}x{rows}"), self.now));
         log::info!("bench: running `{line}` for {secs:.0}s in {cols}x{rows}");
         ctx.request_repaint();
@@ -517,6 +594,9 @@ impl App {
         let Some(line) = self.input_line() else {
             return Vec::new();
         };
+        if internal_refusal(self.tabs[self.active].kind).is_some() {
+            return Vec::new();
+        }
         let Some(prefix) = typed_command(&line) else {
             return Vec::new();
         };
@@ -537,6 +617,11 @@ impl App {
         let Some(line) = self.input_line() else {
             return false;
         };
+        // Completion is part of the internal namespace: over SSH the Tab
+        // belongs to the remote shell.
+        if internal_refusal(self.tabs[self.active].kind).is_some() {
+            return false;
+        }
         let Some(prefix) = typed_command(&line) else {
             return false;
         };

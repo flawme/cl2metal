@@ -791,7 +791,11 @@ mod tests {
         let count = pairs.len();
         pairs.sort_unstable();
         pairs.dedup();
-        assert_eq!(pairs.len(), count, "duplicate (command, sequence) in defaults");
+        assert_eq!(
+            pairs.len(),
+            count,
+            "duplicate (command, sequence) in defaults"
+        );
 
         // The keymap built from no config agrees.
         let keymap = Keymap::from_config(&BTreeMap::new());
@@ -1052,7 +1056,10 @@ mod tests {
         let keymap = Keymap::from_config(&BTreeMap::new());
         let saved = keymap.to_config();
         assert_eq!(saved.get("undo").map(String::as_str), Some("u, ctrl+z"));
-        assert_eq!(saved.get("redo").map(String::as_str), Some("ctrl+r, ctrl+y"));
+        assert_eq!(
+            saved.get("redo").map(String::as_str),
+            Some("ctrl+r, ctrl+y")
+        );
 
         let reloaded = Keymap::from_config(&saved);
         assert_eq!(
