@@ -65,177 +65,1014 @@ fn shape(c: char) -> Option<Shape> {
     use Shape::Arms;
     let s = match c {
         // -- Horizontal lines ------------------------------------------------
-        '\u{2500}' => Arms { l: Some(Lt), r: Some(Lt), u: None, d: None, dash: None },
-        '\u{2501}' => Arms { l: Some(Hv), r: Some(Hv), u: None, d: None, dash: None },
-        '\u{2550}' => Arms { l: Some(Db), r: Some(Db), u: None, d: None, dash: None },
-        '\u{2504}' => Arms { l: Some(Lt), r: Some(Lt), u: None, d: None, dash: Some(Dash::Triple) },
-        '\u{2505}' => Arms { l: Some(Hv), r: Some(Hv), u: None, d: None, dash: Some(Dash::Triple) },
-        '\u{2508}' => Arms { l: Some(Lt), r: Some(Lt), u: None, d: None, dash: Some(Dash::Quadruple) },
-        '\u{2509}' => Arms { l: Some(Hv), r: Some(Hv), u: None, d: None, dash: Some(Dash::Quadruple) },
-        '\u{254C}' => Arms { l: Some(Lt), r: Some(Lt), u: None, d: None, dash: Some(Dash::Double) },
-        '\u{254D}' => Arms { l: Some(Hv), r: Some(Hv), u: None, d: None, dash: Some(Dash::Double) },
+        '\u{2500}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: None,
+            d: None,
+            dash: None,
+        },
+        '\u{2501}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: None,
+            d: None,
+            dash: None,
+        },
+        '\u{2550}' => Arms {
+            l: Some(Db),
+            r: Some(Db),
+            u: None,
+            d: None,
+            dash: None,
+        },
+        '\u{2504}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: None,
+            d: None,
+            dash: Some(Dash::Triple),
+        },
+        '\u{2505}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: None,
+            d: None,
+            dash: Some(Dash::Triple),
+        },
+        '\u{2508}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: None,
+            d: None,
+            dash: Some(Dash::Quadruple),
+        },
+        '\u{2509}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: None,
+            d: None,
+            dash: Some(Dash::Quadruple),
+        },
+        '\u{254C}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: None,
+            d: None,
+            dash: Some(Dash::Double),
+        },
+        '\u{254D}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: None,
+            d: None,
+            dash: Some(Dash::Double),
+        },
         // -- Vertical lines --------------------------------------------------
-        '\u{2502}' => Arms { l: None, r: None, u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{2503}' => Arms { l: None, r: None, u: Some(Hv), d: Some(Hv), dash: None },
-        '\u{2551}' => Arms { l: None, r: None, u: Some(Db), d: Some(Db), dash: None },
-        '\u{2506}' => Arms { l: None, r: None, u: Some(Lt), d: Some(Lt), dash: Some(Dash::Triple) },
-        '\u{2507}' => Arms { l: None, r: None, u: Some(Hv), d: Some(Hv), dash: Some(Dash::Triple) },
-        '\u{250A}' => Arms { l: None, r: None, u: Some(Lt), d: Some(Lt), dash: Some(Dash::Quadruple) },
-        '\u{250B}' => Arms { l: None, r: None, u: Some(Hv), d: Some(Hv), dash: Some(Dash::Quadruple) },
-        '\u{254E}' => Arms { l: None, r: None, u: Some(Lt), d: Some(Lt), dash: Some(Dash::Double) },
-        '\u{254F}' => Arms { l: None, r: None, u: Some(Hv), d: Some(Hv), dash: Some(Dash::Double) },
+        '\u{2502}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2503}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2551}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Db),
+            d: Some(Db),
+            dash: None,
+        },
+        '\u{2506}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: Some(Dash::Triple),
+        },
+        '\u{2507}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: Some(Dash::Triple),
+        },
+        '\u{250A}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: Some(Dash::Quadruple),
+        },
+        '\u{250B}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: Some(Dash::Quadruple),
+        },
+        '\u{254E}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: Some(Dash::Double),
+        },
+        '\u{254F}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: Some(Dash::Double),
+        },
         // -- Corners: down and right ----------------------------------------
-        '\u{250C}' => Arms { l: None, r: Some(Lt), u: None, d: Some(Lt), dash: None },
-        '\u{250D}' => Arms { l: None, r: Some(Hv), u: None, d: Some(Lt), dash: None },
-        '\u{250E}' => Arms { l: None, r: Some(Lt), u: None, d: Some(Hv), dash: None },
-        '\u{250F}' => Arms { l: None, r: Some(Hv), u: None, d: Some(Hv), dash: None },
-        '\u{2552}' => Arms { l: None, r: Some(Db), u: None, d: Some(Lt), dash: None },
-        '\u{2553}' => Arms { l: None, r: Some(Lt), u: None, d: Some(Db), dash: None },
-        '\u{2554}' => Arms { l: None, r: Some(Db), u: None, d: Some(Db), dash: None },
+        '\u{250C}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{250D}' => Arms {
+            l: None,
+            r: Some(Hv),
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{250E}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: None,
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{250F}' => Arms {
+            l: None,
+            r: Some(Hv),
+            u: None,
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2552}' => Arms {
+            l: None,
+            r: Some(Db),
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2553}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: None,
+            d: Some(Db),
+            dash: None,
+        },
+        '\u{2554}' => Arms {
+            l: None,
+            r: Some(Db),
+            u: None,
+            d: Some(Db),
+            dash: None,
+        },
         // -- Corners: down and left -----------------------------------------
-        '\u{2510}' => Arms { l: Some(Lt), r: None, u: None, d: Some(Lt), dash: None },
-        '\u{2511}' => Arms { l: Some(Hv), r: None, u: None, d: Some(Lt), dash: None },
-        '\u{2512}' => Arms { l: Some(Lt), r: None, u: None, d: Some(Hv), dash: None },
-        '\u{2513}' => Arms { l: Some(Hv), r: None, u: None, d: Some(Hv), dash: None },
-        '\u{2555}' => Arms { l: Some(Db), r: None, u: None, d: Some(Lt), dash: None },
-        '\u{2556}' => Arms { l: Some(Lt), r: None, u: None, d: Some(Db), dash: None },
-        '\u{2557}' => Arms { l: Some(Db), r: None, u: None, d: Some(Db), dash: None },
+        '\u{2510}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2511}' => Arms {
+            l: Some(Hv),
+            r: None,
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2512}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: None,
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2513}' => Arms {
+            l: Some(Hv),
+            r: None,
+            u: None,
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2555}' => Arms {
+            l: Some(Db),
+            r: None,
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2556}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: None,
+            d: Some(Db),
+            dash: None,
+        },
+        '\u{2557}' => Arms {
+            l: Some(Db),
+            r: None,
+            u: None,
+            d: Some(Db),
+            dash: None,
+        },
         // -- Corners: up and right ------------------------------------------
-        '\u{2514}' => Arms { l: None, r: Some(Lt), u: Some(Lt), d: None, dash: None },
-        '\u{2515}' => Arms { l: None, r: Some(Hv), u: Some(Lt), d: None, dash: None },
-        '\u{2516}' => Arms { l: None, r: Some(Lt), u: Some(Hv), d: None, dash: None },
-        '\u{2517}' => Arms { l: None, r: Some(Hv), u: Some(Hv), d: None, dash: None },
-        '\u{2558}' => Arms { l: None, r: Some(Db), u: Some(Lt), d: None, dash: None },
-        '\u{2559}' => Arms { l: None, r: Some(Lt), u: Some(Db), d: None, dash: None },
-        '\u{255A}' => Arms { l: None, r: Some(Db), u: Some(Db), d: None, dash: None },
+        '\u{2514}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{2515}' => Arms {
+            l: None,
+            r: Some(Hv),
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{2516}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: Some(Hv),
+            d: None,
+            dash: None,
+        },
+        '\u{2517}' => Arms {
+            l: None,
+            r: Some(Hv),
+            u: Some(Hv),
+            d: None,
+            dash: None,
+        },
+        '\u{2558}' => Arms {
+            l: None,
+            r: Some(Db),
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{2559}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: Some(Db),
+            d: None,
+            dash: None,
+        },
+        '\u{255A}' => Arms {
+            l: None,
+            r: Some(Db),
+            u: Some(Db),
+            d: None,
+            dash: None,
+        },
         // -- Corners: up and left -------------------------------------------
-        '\u{2518}' => Arms { l: Some(Lt), r: None, u: Some(Lt), d: None, dash: None },
-        '\u{2519}' => Arms { l: Some(Hv), r: None, u: Some(Lt), d: None, dash: None },
-        '\u{251A}' => Arms { l: Some(Lt), r: None, u: Some(Hv), d: None, dash: None },
-        '\u{251B}' => Arms { l: Some(Hv), r: None, u: Some(Hv), d: None, dash: None },
-        '\u{255B}' => Arms { l: Some(Db), r: None, u: Some(Lt), d: None, dash: None },
-        '\u{255C}' => Arms { l: Some(Lt), r: None, u: Some(Db), d: None, dash: None },
-        '\u{255D}' => Arms { l: Some(Db), r: None, u: Some(Db), d: None, dash: None },
+        '\u{2518}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{2519}' => Arms {
+            l: Some(Hv),
+            r: None,
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{251A}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: Some(Hv),
+            d: None,
+            dash: None,
+        },
+        '\u{251B}' => Arms {
+            l: Some(Hv),
+            r: None,
+            u: Some(Hv),
+            d: None,
+            dash: None,
+        },
+        '\u{255B}' => Arms {
+            l: Some(Db),
+            r: None,
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{255C}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: Some(Db),
+            d: None,
+            dash: None,
+        },
+        '\u{255D}' => Arms {
+            l: Some(Db),
+            r: None,
+            u: Some(Db),
+            d: None,
+            dash: None,
+        },
         // -- Rounded corners --------------------------------------------------
-        '\u{256D}' => Arms { l: None, r: Some(Lt), u: None, d: Some(Lt), dash: None },
-        '\u{256E}' => Arms { l: Some(Lt), r: None, u: None, d: Some(Lt), dash: None },
-        '\u{2570}' => Arms { l: None, r: Some(Lt), u: Some(Lt), d: None, dash: None },
-        '\u{256F}' => Arms { l: Some(Lt), r: None, u: Some(Lt), d: None, dash: None },
+        '\u{256D}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{256E}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2570}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{256F}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
         // -- Tees: vertical and right ----------------------------------------
-        '\u{251C}' => Arms { l: None, r: Some(Lt), u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{251D}' => Arms { l: None, r: Some(Hv), u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{251E}' => Arms { l: None, r: Some(Lt), u: Some(Hv), d: Some(Lt), dash: None },
-        '\u{251F}' => Arms { l: None, r: Some(Lt), u: Some(Lt), d: Some(Hv), dash: None },
-        '\u{2520}' => Arms { l: None, r: Some(Lt), u: Some(Hv), d: Some(Hv), dash: None },
-        '\u{2521}' => Arms { l: None, r: Some(Lt), u: Some(Hv), d: Some(Lt), dash: None },
-        '\u{2522}' => Arms { l: None, r: Some(Lt), u: Some(Lt), d: Some(Hv), dash: None },
-        '\u{2523}' => Arms { l: None, r: Some(Hv), u: Some(Hv), d: Some(Hv), dash: None },
-        '\u{255E}' => Arms { l: None, r: Some(Db), u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{255F}' => Arms { l: None, r: Some(Lt), u: Some(Db), d: Some(Db), dash: None },
-        '\u{2560}' => Arms { l: None, r: Some(Db), u: Some(Db), d: Some(Db), dash: None },
+        '\u{251C}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{251D}' => Arms {
+            l: None,
+            r: Some(Hv),
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{251E}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: Some(Hv),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{251F}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: Some(Lt),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2520}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2521}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: Some(Hv),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2522}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: Some(Lt),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2523}' => Arms {
+            l: None,
+            r: Some(Hv),
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{255E}' => Arms {
+            l: None,
+            r: Some(Db),
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{255F}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: Some(Db),
+            d: Some(Db),
+            dash: None,
+        },
+        '\u{2560}' => Arms {
+            l: None,
+            r: Some(Db),
+            u: Some(Db),
+            d: Some(Db),
+            dash: None,
+        },
         // -- Tees: vertical and left -----------------------------------------
-        '\u{2524}' => Arms { l: Some(Lt), r: None, u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{2525}' => Arms { l: Some(Hv), r: None, u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{2526}' => Arms { l: Some(Lt), r: None, u: Some(Hv), d: Some(Lt), dash: None },
-        '\u{2527}' => Arms { l: Some(Lt), r: None, u: Some(Lt), d: Some(Hv), dash: None },
-        '\u{2528}' => Arms { l: Some(Lt), r: None, u: Some(Hv), d: Some(Hv), dash: None },
-        '\u{2529}' => Arms { l: Some(Lt), r: None, u: Some(Hv), d: Some(Lt), dash: None },
-        '\u{252A}' => Arms { l: Some(Lt), r: None, u: Some(Lt), d: Some(Hv), dash: None },
-        '\u{252B}' => Arms { l: Some(Hv), r: None, u: Some(Hv), d: Some(Hv), dash: None },
-        '\u{2561}' => Arms { l: Some(Db), r: None, u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{2562}' => Arms { l: Some(Lt), r: None, u: Some(Db), d: Some(Db), dash: None },
-        '\u{2563}' => Arms { l: Some(Db), r: None, u: Some(Db), d: Some(Db), dash: None },
+        '\u{2524}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2525}' => Arms {
+            l: Some(Hv),
+            r: None,
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2526}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: Some(Hv),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2527}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: Some(Lt),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2528}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2529}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: Some(Hv),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{252A}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: Some(Lt),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{252B}' => Arms {
+            l: Some(Hv),
+            r: None,
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2561}' => Arms {
+            l: Some(Db),
+            r: None,
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2562}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: Some(Db),
+            d: Some(Db),
+            dash: None,
+        },
+        '\u{2563}' => Arms {
+            l: Some(Db),
+            r: None,
+            u: Some(Db),
+            d: Some(Db),
+            dash: None,
+        },
         // -- Tees: down and horizontal ---------------------------------------
-        '\u{252C}' => Arms { l: Some(Lt), r: Some(Lt), u: None, d: Some(Lt), dash: None },
-        '\u{252D}' => Arms { l: Some(Hv), r: Some(Lt), u: None, d: Some(Lt), dash: None },
-        '\u{252E}' => Arms { l: Some(Lt), r: Some(Hv), u: None, d: Some(Lt), dash: None },
-        '\u{252F}' => Arms { l: Some(Hv), r: Some(Hv), u: None, d: Some(Lt), dash: None },
-        '\u{2530}' => Arms { l: Some(Lt), r: Some(Lt), u: None, d: Some(Hv), dash: None },
-        '\u{2531}' => Arms { l: Some(Hv), r: Some(Lt), u: None, d: Some(Hv), dash: None },
-        '\u{2532}' => Arms { l: Some(Lt), r: Some(Hv), u: None, d: Some(Hv), dash: None },
-        '\u{2533}' => Arms { l: Some(Hv), r: Some(Hv), u: None, d: Some(Hv), dash: None },
-        '\u{2564}' => Arms { l: Some(Db), r: Some(Db), u: None, d: Some(Lt), dash: None },
-        '\u{2565}' => Arms { l: Some(Lt), r: Some(Lt), u: None, d: Some(Db), dash: None },
-        '\u{2566}' => Arms { l: Some(Db), r: Some(Db), u: None, d: Some(Db), dash: None },
+        '\u{252C}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{252D}' => Arms {
+            l: Some(Hv),
+            r: Some(Lt),
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{252E}' => Arms {
+            l: Some(Lt),
+            r: Some(Hv),
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{252F}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2530}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: None,
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2531}' => Arms {
+            l: Some(Hv),
+            r: Some(Lt),
+            u: None,
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2532}' => Arms {
+            l: Some(Lt),
+            r: Some(Hv),
+            u: None,
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2533}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: None,
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2564}' => Arms {
+            l: Some(Db),
+            r: Some(Db),
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2565}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: None,
+            d: Some(Db),
+            dash: None,
+        },
+        '\u{2566}' => Arms {
+            l: Some(Db),
+            r: Some(Db),
+            u: None,
+            d: Some(Db),
+            dash: None,
+        },
         // -- Tees: up and horizontal -----------------------------------------
-        '\u{2534}' => Arms { l: Some(Lt), r: Some(Lt), u: Some(Lt), d: None, dash: None },
-        '\u{2535}' => Arms { l: Some(Hv), r: Some(Lt), u: Some(Lt), d: None, dash: None },
-        '\u{2536}' => Arms { l: Some(Lt), r: Some(Hv), u: Some(Lt), d: None, dash: None },
-        '\u{2537}' => Arms { l: Some(Hv), r: Some(Hv), u: Some(Lt), d: None, dash: None },
-        '\u{2538}' => Arms { l: Some(Lt), r: Some(Lt), u: Some(Hv), d: None, dash: None },
-        '\u{2539}' => Arms { l: Some(Hv), r: Some(Lt), u: Some(Hv), d: None, dash: None },
-        '\u{253A}' => Arms { l: Some(Lt), r: Some(Hv), u: Some(Hv), d: None, dash: None },
-        '\u{253B}' => Arms { l: Some(Hv), r: Some(Hv), u: Some(Hv), d: None, dash: None },
-        '\u{2567}' => Arms { l: Some(Db), r: Some(Db), u: Some(Lt), d: None, dash: None },
-        '\u{2568}' => Arms { l: Some(Lt), r: Some(Lt), u: Some(Db), d: None, dash: None },
-        '\u{2569}' => Arms { l: Some(Db), r: Some(Db), u: Some(Db), d: None, dash: None },
+        '\u{2534}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{2535}' => Arms {
+            l: Some(Hv),
+            r: Some(Lt),
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{2536}' => Arms {
+            l: Some(Lt),
+            r: Some(Hv),
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{2537}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{2538}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: Some(Hv),
+            d: None,
+            dash: None,
+        },
+        '\u{2539}' => Arms {
+            l: Some(Hv),
+            r: Some(Lt),
+            u: Some(Hv),
+            d: None,
+            dash: None,
+        },
+        '\u{253A}' => Arms {
+            l: Some(Lt),
+            r: Some(Hv),
+            u: Some(Hv),
+            d: None,
+            dash: None,
+        },
+        '\u{253B}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: Some(Hv),
+            d: None,
+            dash: None,
+        },
+        '\u{2567}' => Arms {
+            l: Some(Db),
+            r: Some(Db),
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{2568}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: Some(Db),
+            d: None,
+            dash: None,
+        },
+        '\u{2569}' => Arms {
+            l: Some(Db),
+            r: Some(Db),
+            u: Some(Db),
+            d: None,
+            dash: None,
+        },
         // -- Crosses ----------------------------------------------------------
-        '\u{253C}' => Arms { l: Some(Lt), r: Some(Lt), u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{253D}' => Arms { l: Some(Hv), r: Some(Lt), u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{253E}' => Arms { l: Some(Lt), r: Some(Hv), u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{253F}' => Arms { l: Some(Hv), r: Some(Hv), u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{2540}' => Arms { l: Some(Lt), r: Some(Lt), u: Some(Hv), d: Some(Lt), dash: None },
-        '\u{2541}' => Arms { l: Some(Lt), r: Some(Lt), u: Some(Lt), d: Some(Hv), dash: None },
-        '\u{2542}' => Arms { l: Some(Lt), r: Some(Lt), u: Some(Hv), d: Some(Hv), dash: None },
-        '\u{2543}' => Arms { l: Some(Hv), r: Some(Lt), u: Some(Hv), d: Some(Lt), dash: None },
-        '\u{2544}' => Arms { l: Some(Lt), r: Some(Hv), u: Some(Hv), d: Some(Lt), dash: None },
-        '\u{2545}' => Arms { l: Some(Hv), r: Some(Lt), u: Some(Lt), d: Some(Hv), dash: None },
-        '\u{2546}' => Arms { l: Some(Lt), r: Some(Hv), u: Some(Lt), d: Some(Hv), dash: None },
-        '\u{2547}' => Arms { l: Some(Hv), r: Some(Hv), u: Some(Hv), d: Some(Lt), dash: None },
-        '\u{2548}' => Arms { l: Some(Hv), r: Some(Hv), u: Some(Lt), d: Some(Hv), dash: None },
-        '\u{2549}' => Arms { l: Some(Hv), r: Some(Lt), u: Some(Hv), d: Some(Hv), dash: None },
-        '\u{254A}' => Arms { l: Some(Lt), r: Some(Hv), u: Some(Hv), d: Some(Hv), dash: None },
-        '\u{254B}' => Arms { l: Some(Hv), r: Some(Hv), u: Some(Hv), d: Some(Hv), dash: None },
-        '\u{256A}' => Arms { l: Some(Db), r: Some(Db), u: Some(Lt), d: Some(Lt), dash: None },
-        '\u{256B}' => Arms { l: Some(Lt), r: Some(Lt), u: Some(Db), d: Some(Db), dash: None },
-        '\u{256C}' => Arms { l: Some(Db), r: Some(Db), u: Some(Db), d: Some(Db), dash: None },
+        '\u{253C}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{253D}' => Arms {
+            l: Some(Hv),
+            r: Some(Lt),
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{253E}' => Arms {
+            l: Some(Lt),
+            r: Some(Hv),
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{253F}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2540}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: Some(Hv),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2541}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: Some(Lt),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2542}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2543}' => Arms {
+            l: Some(Hv),
+            r: Some(Lt),
+            u: Some(Hv),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2544}' => Arms {
+            l: Some(Lt),
+            r: Some(Hv),
+            u: Some(Hv),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2545}' => Arms {
+            l: Some(Hv),
+            r: Some(Lt),
+            u: Some(Lt),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2546}' => Arms {
+            l: Some(Lt),
+            r: Some(Hv),
+            u: Some(Lt),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2547}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: Some(Hv),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2548}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: Some(Lt),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{2549}' => Arms {
+            l: Some(Hv),
+            r: Some(Lt),
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{254A}' => Arms {
+            l: Some(Lt),
+            r: Some(Hv),
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{254B}' => Arms {
+            l: Some(Hv),
+            r: Some(Hv),
+            u: Some(Hv),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{256A}' => Arms {
+            l: Some(Db),
+            r: Some(Db),
+            u: Some(Lt),
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{256B}' => Arms {
+            l: Some(Lt),
+            r: Some(Lt),
+            u: Some(Db),
+            d: Some(Db),
+            dash: None,
+        },
+        '\u{256C}' => Arms {
+            l: Some(Db),
+            r: Some(Db),
+            u: Some(Db),
+            d: Some(Db),
+            dash: None,
+        },
         // -- Half lines --------------------------------------------------------
-        '\u{2574}' => Arms { l: Some(Lt), r: None, u: None, d: None, dash: None },
-        '\u{2575}' => Arms { l: None, r: None, u: Some(Lt), d: None, dash: None },
-        '\u{2576}' => Arms { l: None, r: Some(Lt), u: None, d: None, dash: None },
-        '\u{2577}' => Arms { l: None, r: None, u: None, d: Some(Lt), dash: None },
-        '\u{2578}' => Arms { l: Some(Hv), r: None, u: None, d: None, dash: None },
-        '\u{2579}' => Arms { l: None, r: None, u: Some(Hv), d: None, dash: None },
-        '\u{257A}' => Arms { l: None, r: Some(Hv), u: None, d: None, dash: None },
-        '\u{257B}' => Arms { l: None, r: None, u: None, d: Some(Hv), dash: None },
-        '\u{257C}' => Arms { l: Some(Lt), r: Some(Hv), u: None, d: None, dash: None },
-        '\u{257D}' => Arms { l: None, r: None, u: Some(Lt), d: Some(Hv), dash: None },
-        '\u{257E}' => Arms { l: Some(Hv), r: Some(Lt), u: None, d: None, dash: None },
-        '\u{257F}' => Arms { l: None, r: None, u: Some(Hv), d: Some(Lt), dash: None },
+        '\u{2574}' => Arms {
+            l: Some(Lt),
+            r: None,
+            u: None,
+            d: None,
+            dash: None,
+        },
+        '\u{2575}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Lt),
+            d: None,
+            dash: None,
+        },
+        '\u{2576}' => Arms {
+            l: None,
+            r: Some(Lt),
+            u: None,
+            d: None,
+            dash: None,
+        },
+        '\u{2577}' => Arms {
+            l: None,
+            r: None,
+            u: None,
+            d: Some(Lt),
+            dash: None,
+        },
+        '\u{2578}' => Arms {
+            l: Some(Hv),
+            r: None,
+            u: None,
+            d: None,
+            dash: None,
+        },
+        '\u{2579}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Hv),
+            d: None,
+            dash: None,
+        },
+        '\u{257A}' => Arms {
+            l: None,
+            r: Some(Hv),
+            u: None,
+            d: None,
+            dash: None,
+        },
+        '\u{257B}' => Arms {
+            l: None,
+            r: None,
+            u: None,
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{257C}' => Arms {
+            l: Some(Lt),
+            r: Some(Hv),
+            u: None,
+            d: None,
+            dash: None,
+        },
+        '\u{257D}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Lt),
+            d: Some(Hv),
+            dash: None,
+        },
+        '\u{257E}' => Arms {
+            l: Some(Hv),
+            r: Some(Lt),
+            u: None,
+            d: None,
+            dash: None,
+        },
+        '\u{257F}' => Arms {
+            l: None,
+            r: None,
+            u: Some(Hv),
+            d: Some(Lt),
+            dash: None,
+        },
         // -- Diagonals and shades stay with the font ---------------------------
         '\u{2571}' | '\u{2572}' | '\u{2573}' | '\u{2591}' | '\u{2592}' | '\u{2593}' => {
             return None;
         }
         // -- Blocks -------------------------------------------------------------
-        '\u{2580}' => Shape::Block { rects: [(0.0, 0.0, 1.0, 0.5), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2581}' => Shape::Block { rects: [(0.0, 0.875, 1.0, 0.125), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2582}' => Shape::Block { rects: [(0.0, 0.75, 1.0, 0.25), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2583}' => Shape::Block { rects: [(0.0, 0.625, 1.0, 0.375), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2584}' => Shape::Block { rects: [(0.0, 0.5, 1.0, 0.5), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2585}' => Shape::Block { rects: [(0.0, 0.375, 1.0, 0.625), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2586}' => Shape::Block { rects: [(0.0, 0.25, 1.0, 0.75), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2587}' => Shape::Block { rects: [(0.0, 0.125, 1.0, 0.875), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2588}' => Shape::Block { rects: [(0.0, 0.0, 1.0, 1.0), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2589}' => Shape::Block { rects: [(0.0, 0.0, 0.875, 1.0), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{258A}' => Shape::Block { rects: [(0.0, 0.0, 0.75, 1.0), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{258B}' => Shape::Block { rects: [(0.0, 0.0, 0.625, 1.0), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{258C}' => Shape::Block { rects: [(0.0, 0.0, 0.5, 1.0), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{258D}' => Shape::Block { rects: [(0.0, 0.0, 0.375, 1.0), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{258E}' => Shape::Block { rects: [(0.0, 0.0, 0.25, 1.0), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{258F}' => Shape::Block { rects: [(0.0, 0.0, 0.125, 1.0), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2590}' => Shape::Block { rects: [(0.5, 0.0, 0.5, 1.0), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2594}' => Shape::Block { rects: [(0.0, 0.0, 1.0, 0.125), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2595}' => Shape::Block { rects: [(0.875, 0.0, 0.125, 1.0), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2596}' => Shape::Block { rects: [(0.0, 0.5, 0.5, 0.5), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2597}' => Shape::Block { rects: [(0.5, 0.5, 0.5, 0.5), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2598}' => Shape::Block { rects: [(0.0, 0.0, 0.5, 0.5), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{2599}' => Shape::Block { rects: [(0.0, 0.0, 0.5, 0.5), (0.0, 0.5, 1.0, 0.5)], n: 2 },
-        '\u{259A}' => Shape::Block { rects: [(0.0, 0.0, 0.5, 0.5), (0.5, 0.5, 0.5, 0.5)], n: 2 },
-        '\u{259B}' => Shape::Block { rects: [(0.0, 0.0, 1.0, 0.5), (0.0, 0.5, 0.5, 0.5)], n: 2 },
-        '\u{259C}' => Shape::Block { rects: [(0.0, 0.0, 1.0, 0.5), (0.5, 0.5, 0.5, 0.5)], n: 2 },
-        '\u{259D}' => Shape::Block { rects: [(0.5, 0.0, 0.5, 0.5), (0.0, 0.0, 0.0, 0.0)], n: 1 },
-        '\u{259E}' => Shape::Block { rects: [(0.5, 0.0, 0.5, 0.5), (0.0, 0.5, 0.5, 0.5)], n: 2 },
-        '\u{259F}' => Shape::Block { rects: [(0.5, 0.0, 0.5, 0.5), (0.0, 0.5, 1.0, 0.5)], n: 2 },
+        '\u{2580}' => Shape::Block {
+            rects: [(0.0, 0.0, 1.0, 0.5), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2581}' => Shape::Block {
+            rects: [(0.0, 0.875, 1.0, 0.125), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2582}' => Shape::Block {
+            rects: [(0.0, 0.75, 1.0, 0.25), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2583}' => Shape::Block {
+            rects: [(0.0, 0.625, 1.0, 0.375), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2584}' => Shape::Block {
+            rects: [(0.0, 0.5, 1.0, 0.5), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2585}' => Shape::Block {
+            rects: [(0.0, 0.375, 1.0, 0.625), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2586}' => Shape::Block {
+            rects: [(0.0, 0.25, 1.0, 0.75), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2587}' => Shape::Block {
+            rects: [(0.0, 0.125, 1.0, 0.875), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2588}' => Shape::Block {
+            rects: [(0.0, 0.0, 1.0, 1.0), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2589}' => Shape::Block {
+            rects: [(0.0, 0.0, 0.875, 1.0), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{258A}' => Shape::Block {
+            rects: [(0.0, 0.0, 0.75, 1.0), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{258B}' => Shape::Block {
+            rects: [(0.0, 0.0, 0.625, 1.0), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{258C}' => Shape::Block {
+            rects: [(0.0, 0.0, 0.5, 1.0), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{258D}' => Shape::Block {
+            rects: [(0.0, 0.0, 0.375, 1.0), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{258E}' => Shape::Block {
+            rects: [(0.0, 0.0, 0.25, 1.0), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{258F}' => Shape::Block {
+            rects: [(0.0, 0.0, 0.125, 1.0), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2590}' => Shape::Block {
+            rects: [(0.5, 0.0, 0.5, 1.0), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2594}' => Shape::Block {
+            rects: [(0.0, 0.0, 1.0, 0.125), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2595}' => Shape::Block {
+            rects: [(0.875, 0.0, 0.125, 1.0), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2596}' => Shape::Block {
+            rects: [(0.0, 0.5, 0.5, 0.5), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2597}' => Shape::Block {
+            rects: [(0.5, 0.5, 0.5, 0.5), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2598}' => Shape::Block {
+            rects: [(0.0, 0.0, 0.5, 0.5), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{2599}' => Shape::Block {
+            rects: [(0.0, 0.0, 0.5, 0.5), (0.0, 0.5, 1.0, 0.5)],
+            n: 2,
+        },
+        '\u{259A}' => Shape::Block {
+            rects: [(0.0, 0.0, 0.5, 0.5), (0.5, 0.5, 0.5, 0.5)],
+            n: 2,
+        },
+        '\u{259B}' => Shape::Block {
+            rects: [(0.0, 0.0, 1.0, 0.5), (0.0, 0.5, 0.5, 0.5)],
+            n: 2,
+        },
+        '\u{259C}' => Shape::Block {
+            rects: [(0.0, 0.0, 1.0, 0.5), (0.5, 0.5, 0.5, 0.5)],
+            n: 2,
+        },
+        '\u{259D}' => Shape::Block {
+            rects: [(0.5, 0.0, 0.5, 0.5), (0.0, 0.0, 0.0, 0.0)],
+            n: 1,
+        },
+        '\u{259E}' => Shape::Block {
+            rects: [(0.5, 0.0, 0.5, 0.5), (0.0, 0.5, 0.5, 0.5)],
+            n: 2,
+        },
+        '\u{259F}' => Shape::Block {
+            rects: [(0.5, 0.0, 0.5, 0.5), (0.0, 0.5, 1.0, 0.5)],
+            n: 2,
+        },
         _ => return None,
     };
     Some(s)
@@ -297,7 +1134,10 @@ impl Rects {
 /// The rects a box/block character fills in the cell at `(x, y)`, sized
 /// `cw x ch`. Empty when the character is left to the font.
 pub(crate) fn rects(c: char, x: f32, y: f32, cw: f32, ch: f32) -> Rects {
-    let mut out = Rects { items: [[0.0; 4]; 12], n: 0 };
+    let mut out = Rects {
+        items: [[0.0; 4]; 12],
+        n: 0,
+    };
     let Some(s) = shape(c) else {
         return out;
     };
@@ -317,11 +1157,7 @@ pub(crate) fn rects(c: char, x: f32, y: f32, cw: f32, ch: f32) -> Rects {
         Shape::Arms { l, r, u, d, dash } => {
             // Dashed lines replace both arms along their axis.
             if let Some(dash) = dash {
-                let (horizontal, weight) = if l.is_some() {
-                    (true, l)
-                } else {
-                    (false, u)
-                };
+                let (horizontal, weight) = if l.is_some() { (true, l) } else { (false, u) };
                 let weight = weight.unwrap_or(Weight::Light);
                 let span = if horizontal { cw } else { ch };
                 let count = match dash {
@@ -346,19 +1182,51 @@ pub(crate) fn rects(c: char, x: f32, y: f32, cw: f32, ch: f32) -> Rects {
             let arc = arc_kind(c);
             if let Some(w) = l {
                 let inset = arc.map_or(mid_x, |k| arc_inset_x(k, mid_x, cw, ch, t));
-                push_horiz(&mut out, x, inset + arm_thickness(w, t, th) * 0.5, w, mid_y, t, th);
+                push_horiz(
+                    &mut out,
+                    x,
+                    inset + arm_thickness(w, t, th) * 0.5,
+                    w,
+                    mid_y,
+                    t,
+                    th,
+                );
             }
             if let Some(w) = r {
                 let inset = arc.map_or(mid_x, |k| arc_inset_x(k, mid_x, cw, ch, t));
-                push_horiz(&mut out, inset - arm_thickness(w, t, th) * 0.5, x + cw, w, mid_y, t, th);
+                push_horiz(
+                    &mut out,
+                    inset - arm_thickness(w, t, th) * 0.5,
+                    x + cw,
+                    w,
+                    mid_y,
+                    t,
+                    th,
+                );
             }
             if let Some(w) = u {
                 let inset = arc.map_or(mid_y, |k| arc_inset_y(k, mid_y, cw, ch, t));
-                push_vert(&mut out, y, inset + arm_thickness(w, t, th) * 0.5, w, mid_x, t, th);
+                push_vert(
+                    &mut out,
+                    y,
+                    inset + arm_thickness(w, t, th) * 0.5,
+                    w,
+                    mid_x,
+                    t,
+                    th,
+                );
             }
             if let Some(w) = d {
                 let inset = arc.map_or(mid_y, |k| arc_inset_y(k, mid_y, cw, ch, t));
-                push_vert(&mut out, inset - arm_thickness(w, t, th) * 0.5, y + ch, w, mid_x, t, th);
+                push_vert(
+                    &mut out,
+                    inset - arm_thickness(w, t, th) * 0.5,
+                    y + ch,
+                    w,
+                    mid_x,
+                    t,
+                    th,
+                );
             }
         }
     }
@@ -454,8 +1322,9 @@ pub(crate) fn paint_arc(c: char, cw: f32, ch: f32, put: &mut dyn FnMut(u32, u32,
                 continue;
             }
             let d = (dx * dx + dy * dy).sqrt();
-            let cov = ((r + half + 0.5 - d).clamp(0.0, 1.0) * (d - (r - half) + 0.5).clamp(0.0, 1.0))
-                .clamp(0.0, 1.0);
+            let cov = ((r + half + 0.5 - d).clamp(0.0, 1.0)
+                * (d - (r - half) + 0.5).clamp(0.0, 1.0))
+            .clamp(0.0, 1.0);
             if cov > 0.008 {
                 put(px, py, (cov * 255.0) as u8);
             }
@@ -498,7 +1367,10 @@ mod tests {
             v.sort_by(|a, b| a[1].total_cmp(&b[1]));
             v
         };
-        assert!(sorted[0][1] + sorted[0][3] >= sorted[1][1], "arms overlap: {sorted:?}");
+        assert!(
+            sorted[0][1] + sorted[0][3] >= sorted[1][1],
+            "arms overlap: {sorted:?}"
+        );
         // Every piece is the same stroke width.
         for r in &rs {
             assert!((r[2] - rs[0][2]).abs() < 0.001, "uniform stroke: {r:?}");
@@ -517,7 +1389,10 @@ mod tests {
             v.sort_by(|a, b| a[0].total_cmp(&b[0]));
             v
         };
-        assert!(sorted[0][0] + sorted[0][2] >= sorted[1][0], "arms overlap: {sorted:?}");
+        assert!(
+            sorted[0][0] + sorted[0][2] >= sorted[1][0],
+            "arms overlap: {sorted:?}"
+        );
         // Both halves sit on the same band.
         assert_eq!(sorted[0][1], sorted[1][1]);
     }
@@ -550,7 +1425,11 @@ mod tests {
         assert_eq!(arc_kind('\u{256D}'), Some(ArcKind::DownRight));
         let rs = all('\u{256D}');
         let (_, _, x1, y1) = union(&rs);
-        assert_eq!((x1, y1), (X + CW, Y + CH), "down and right arms reach the edges");
+        assert_eq!(
+            (x1, y1),
+            (X + CW, Y + CH),
+            "down and right arms reach the edges"
+        );
         // The other three corners reach the edges they connect on.
         let rs = all('\u{2570}');
         let (_, y0, x1, _) = union(&rs);
@@ -568,7 +1447,11 @@ mod tests {
         // ├ is vertical-and-right: up, down and right, no left arm.
         let rs = all('\u{251C}');
         let (x0, y0, x1, y1) = union(&rs);
-        assert_eq!((y0, x1, y1), (Y, X + CW, Y + CH), "├ reaches top, right and bottom");
+        assert_eq!(
+            (y0, x1, y1),
+            (Y, X + CW, Y + CH),
+            "├ reaches top, right and bottom"
+        );
         // The vertical stems share one x band, centered on the mid line.
         let stem: Vec<[f32; 4]> = rs.iter().filter(|r| r[3] > r[2]).copied().collect();
         assert_eq!(stem.len(), 2, "an up stem and a down stem");
@@ -578,12 +1461,22 @@ mod tests {
             (stem_center - (X + CW * 0.5)).abs() <= 0.51,
             "the stem is centered on the mid line: {stem_center}"
         );
-        assert!(x0 > X, "├ has no left arm, so nothing reaches the left edge");
+        assert!(
+            x0 > X,
+            "├ has no left arm, so nothing reaches the left edge"
+        );
         // The right arm is the lone horizontal and overlaps the stem.
         let horiz: Vec<[f32; 4]> = rs.iter().filter(|r| r[2] > r[3]).copied().collect();
         assert_eq!(horiz.len(), 1);
-        assert_eq!(horiz[0][0] + horiz[0][2], X + CW, "the right arm reaches the right edge");
-        assert!(horiz[0][0] < stem[0][0] + stem[0][2], "the right arm overlaps the stem");
+        assert_eq!(
+            horiz[0][0] + horiz[0][2],
+            X + CW,
+            "the right arm reaches the right edge"
+        );
+        assert!(
+            horiz[0][0] < stem[0][0] + stem[0][2],
+            "the right arm overlaps the stem"
+        );
     }
 
     #[test]
@@ -607,7 +1500,10 @@ mod tests {
             let strokes: Vec<[f32; 4]> = rs.iter().filter(|r| r[1] == *band).copied().collect();
             assert_eq!(strokes.len(), 2);
             assert_eq!(strokes.iter().map(|r| r[0]).fold(f32::MAX, f32::min), X);
-            assert_eq!(strokes.iter().map(|r| r[0] + r[2]).fold(f32::MIN, f32::max), X + CW);
+            assert_eq!(
+                strokes.iter().map(|r| r[0] + r[2]).fold(f32::MIN, f32::max),
+                X + CW
+            );
         }
         // ║: the same, vertically.
         let rs = all('\u{2551}');
@@ -620,7 +1516,10 @@ mod tests {
             let strokes: Vec<[f32; 4]> = rs.iter().filter(|r| r[0] == *band).copied().collect();
             assert_eq!(strokes.len(), 2);
             assert_eq!(strokes.iter().map(|r| r[1]).fold(f32::MAX, f32::min), Y);
-            assert_eq!(strokes.iter().map(|r| r[1] + r[3]).fold(f32::MIN, f32::max), Y + CH);
+            assert_eq!(
+                strokes.iter().map(|r| r[1] + r[3]).fold(f32::MIN, f32::max),
+                Y + CH
+            );
         }
     }
 
@@ -629,7 +1528,10 @@ mod tests {
         let rs = all('\u{2504}'); // ┄, triple dash
         assert_eq!(rs.len(), 3);
         for r in &rs {
-            assert!(r[0] >= X && r[0] + r[2] <= X + CW, "dash inside the cell: {r:?}");
+            assert!(
+                r[0] >= X && r[0] + r[2] <= X + CW,
+                "dash inside the cell: {r:?}"
+            );
             assert!(r[2] < CW, "each dash is shorter than the cell");
         }
         // The pattern must end with a gap so it repeats across cells.
@@ -658,7 +1560,9 @@ mod tests {
 
     #[test]
     fn diagonals_and_shades_stay_with_the_font() {
-        for c in ['\u{2571}', '\u{2572}', '\u{2573}', '\u{2591}', '\u{2592}', '\u{2593}', 'a', ' ', 'Ä'] {
+        for c in [
+            '\u{2571}', '\u{2572}', '\u{2573}', '\u{2591}', '\u{2592}', '\u{2593}', 'a', ' ', 'Ä',
+        ] {
             assert!(!is_drawn(c), "{c:?} must stay with the font");
             assert!(rects(c, X, Y, CW, CH).iter().next().is_none());
         }
@@ -708,13 +1612,15 @@ mod tests {
         let rs = all('\u{253D}');
         let (x0, _, x1, _) = union(&rs);
         assert_eq!((x0, x1), (X, X + CW), "arms chain across the whole width");
-        let horiz: Vec<[f32; 4]> =
-            rs.iter().filter(|r| r[2] > r[3]).copied().collect();
+        let horiz: Vec<[f32; 4]> = rs.iter().filter(|r| r[2] > r[3]).copied().collect();
         assert_eq!(horiz.len(), 2, "a heavy and a light horizontal arm");
         let widths: Vec<f32> = horiz.iter().map(|r| r[3]).collect();
         assert!(widths[0] != widths[1], "the weights differ: {widths:?}");
         let mut ends: Vec<(f32, f32)> = horiz.iter().map(|r| (r[0], r[0] + r[2])).collect();
         ends.sort_by(|a, b| a.0.total_cmp(&b.0));
-        assert!(ends[0].1 >= ends[1].0, "the arms overlap with no seam: {ends:?}");
+        assert!(
+            ends[0].1 >= ends[1].0,
+            "the arms overlap with no seam: {ends:?}"
+        );
     }
 }

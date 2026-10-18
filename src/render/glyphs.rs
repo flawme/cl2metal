@@ -306,7 +306,8 @@ impl GlyphAtlas {
                 self.pixels[idx] = v;
             }
         });
-        self.dirty.push([pos.0 as u16, pos.1 as u16, uw as u16, uh as u16]);
+        self.dirty
+            .push([pos.0 as u16, pos.1 as u16, uw as u16, uh as u16]);
         let entry = GlyphEntry {
             top: 0.0,
             w: uw as f32,
@@ -411,7 +412,9 @@ mod tests {
         let db = Database::new();
         let mut atlas = GlyphAtlas::new(&db, "none", 18);
 
-        let e = atlas.synthetic('\u{256D}', 9.0, 18.0).expect("the arc rasterizes");
+        let e = atlas
+            .synthetic('\u{256D}', 9.0, 18.0)
+            .expect("the arc rasterizes");
         assert_eq!(e.top, 0.0, "blits at the cell's top edge");
         assert_eq!((e.w, e.h), (9.0, 18.0), "spans the whole cell");
         assert!(!atlas.dirty.is_empty(), "the atlas got pixels to upload");
