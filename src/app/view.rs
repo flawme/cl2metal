@@ -578,6 +578,7 @@ impl App {
         if matches!(self.overlay, Overlay::None)
             && self.search.is_none()
             && self.prompts.is_empty()
+            && self.consents.is_empty()
             && self.sysinfo.is_none()
         {
             if !resp.has_focus() {
@@ -710,7 +711,8 @@ impl App {
         // IME: let the platform compose text at the terminal cursor.
         let composing = matches!(self.overlay, Overlay::None)
             && self.search.is_none()
-            && self.prompts.is_empty();
+            && self.prompts.is_empty()
+            && self.consents.is_empty();
         if composing && self.last_focused {
             let cursor_rect = {
                 let tab = &self.tabs[self.active];
@@ -891,7 +893,11 @@ impl App {
             );
             let active = bar.hovered() || bar.dragged();
             // The bar breathes wider under the pointer, VS Code style.
-            let want = if active { SCROLLBAR_WIDE } else { SCROLLBAR_THIN };
+            let want = if active {
+                SCROLLBAR_WIDE
+            } else {
+                SCROLLBAR_THIN
+            };
             let was = self.scrollbar_w;
             self.scrollbar_w = eased_width(self.scrollbar_w, want, self.frame_dt);
             if self.scrollbar_w != was {
@@ -1050,6 +1056,31 @@ impl App {
 
     pub(crate) fn draw_overlays(&mut self, ui: &mut egui::Ui) {
         let theme = self.theme.clone();
+
+        // Agent consent gates every brokered session and every screened
+        // command, and it draws first: nothing underneath it is answered
+        // while a question is pending.
+        while let Some(front) = self.consents.front() {
+            if self.now - front.0 <= CONSENT_TIMEOUT_SECS {
+                break;
+            }
+            // The broker gave up on its side; answer denial so the state
+            // is deterministic even if the clocks drifted.
+            if let Some((_, dead)) = self.consents.pop_front() {
+                let _ = dead.reply.send(ConsentAnswer::Deny);
+            }
+        }
+        if let Some(front) = self.consents.front_mut() {
+            let remaining = (CONSENT_TIMEOUT_SECS - (self.now - front.0)).max(0.0);
+            let mut decision: Option<ConsentAnswer> = None;
+            ui::show_consent(ui, &theme, &front.1, remaining, &mut decision);
+            if let Some(answer) = decision
+                && let Some((_, answered)) = self.consents.pop_front()
+            {
+                let _ = answered.reply.send(answer);
+            }
+            return;
+        }
 
         // SSH prompts (queued).
         if !self.prompts.is_empty() {

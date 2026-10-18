@@ -1,5 +1,6 @@
 //! cl2metal — a sleek, minimal, secure terminal + SSH client.
 
+mod agent;
 mod app;
 mod bench;
 mod config;
@@ -67,6 +68,25 @@ fn main() -> eframe::Result<()> {
             eprintln!("cl2metal: --install-desktop failed: {e}");
             std::process::exit(1);
         }
+        return Ok(());
+    }
+
+    // `cl2metal mcp`: the MCP stdio server coding-agent hosts launch;
+    // `cl2metal mcp skill` prints the built-in agent skill instead.
+    // Parsed here, before Cli::parse(), because a bare positional would
+    // otherwise land in cli.host.
+    if args.first().is_some_and(|a| a == "mcp") {
+        #[cfg(unix)]
+        {
+            if args.get(1).map(String::as_str) == Some("skill") {
+                print!("{}", agent::mcp::SKILL_MD);
+            } else if let Err(e) = agent::mcp::run() {
+                eprintln!("cl2metal: mcp: {e}");
+                std::process::exit(1);
+            }
+        }
+        #[cfg(not(unix))]
+        eprintln!("cl2metal: mcp needs a unix socket; not available here");
         return Ok(());
     }
 

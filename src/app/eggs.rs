@@ -41,6 +41,9 @@ pub(crate) enum InternalCmd {
     Even(EvenMode),
     /// `:bench [secs]` — run the spinning-torus benchmark in this pane.
     Bench(f32),
+    /// `:mcp-on` — register this app's MCP server into every
+    /// coding-agent host found on this machine.
+    McpOn,
     /// A command that needs an argument: show how to use it.
     Usage(&'static str),
 }
@@ -59,6 +62,7 @@ pub(crate) const INTERNAL_COMMANDS: &[(&str, &str)] = &[
     ("ssh", "connect to a host"),
     ("even", "even out the panes"),
     ("bench", "spinning torus benchmark"),
+    ("mcp-on", "register the MCP server into agent hosts"),
     ("help", "list these commands"),
 ];
 
@@ -162,6 +166,7 @@ pub(crate) fn parse_internal(line: &str) -> Option<InternalCmd> {
             Err(_) if args.is_empty() => InternalCmd::Bench(BENCH_SECS),
             Err(_) => return Some(InternalCmd::Usage(":bench [seconds]")),
         },
+        "mcp-on" => InternalCmd::McpOn,
         _ => return None,
     })
 }
@@ -506,6 +511,28 @@ impl App {
             },
             InternalCmd::Even(mode) => self.even_panes(mode),
             InternalCmd::Bench(secs) => self.start_bench(secs, ctx),
+            InternalCmd::McpOn => {
+                #[cfg(unix)]
+                {
+                    let reports = crate::agent::register::register_all();
+                    let mut line = crate::agent::register::summary(&reports);
+                    if !self.config.agent_api.enabled {
+                        line.push_str(" — agent access is off in Settings");
+                    }
+                    self.toast = Some((line, self.now));
+                    log::info!("internal: :mcp-on");
+                    for report in &reports {
+                        log::info!("mcp-on: {} — {}", report.host, report.detail);
+                    }
+                }
+                #[cfg(not(unix))]
+                {
+                    self.toast = Some((
+                        "mcp-on: needs the unix socket (not available on this platform)".to_owned(),
+                        self.now,
+                    ));
+                }
+            }
         }
     }
 

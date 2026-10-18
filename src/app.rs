@@ -1,5 +1,9 @@
 //! Application state: tabs, input routing, session plumbing, and layout.
 
+use crate::agent::server::{
+    self as agent_server, AgentEvent, CONSENT_TIMEOUT_SECS, ConsentAnswer, ConsentKind,
+    ConsentRequest,
+};
 use crate::config::{AuthMethod, Config, CursorShape, SshProfile, secrets};
 use crate::render::{
     self, AtlasGpu, CursorOpts, RendererCore, TerminalCallback,
@@ -12,7 +16,9 @@ use crate::term::{
     ssh::SshParams,
 };
 use crate::theme::{self, Theme};
-use crate::ui::{self, BAR_H, CloseScope, Overlay, PaletteAction, PromptKind, SshPrompt, color32};
+use crate::ui::{
+    self, BAR_H, CloseScope, Overlay, PaletteAction, PromptKind, PromptSource, SshPrompt, color32,
+};
 use alacritty_terminal::{
     event::WindowSize,
     grid::{Dimensions, Scroll},
@@ -535,6 +541,11 @@ pub struct App {
     editor: crate::editor::Editor,
     /// The SFTP browser, when a host's files are open.
     sftp: Option<sftp_panel::SftpPanel>,
+    /// The agent access broker (`None` when its socket could not bind).
+    agent: Option<agent_server::Broker>,
+    /// Consent questions from the broker, oldest first, with the time
+    /// they were queued on the app clock.
+    consents: VecDeque<(f64, ConsentRequest)>,
 }
 
 /// A tab that was closed, kept so `Ctrl+Shift+R` can bring the session back.
@@ -692,6 +703,10 @@ impl App {
         let gpu = format!("{} ({:?})", adapter.name, adapter.backend);
         log::info!("gpu: {gpu}");
         let waker = make_waker(&cc.egui_ctx);
+        // The agent access broker: local socket, human consent, audit
+        // trail. A bind failure only turns the feature off, never the
+        // app.
+        let agent = agent_server::start(&config, waker.clone());
 
         // The editor is built before the struct literal because `config` moves
         // into it.
@@ -786,6 +801,8 @@ impl App {
             ssh_scroll: 0.0,
             editor,
             sftp: None,
+            agent,
+            consents: VecDeque::new(),
         };
         log::info!("app constructed; spawning the first tab");
         app.sync_background(&cc.egui_ctx);
@@ -816,6 +833,10 @@ impl App {
 
     /// Save the config, logging (never failing the command) on error.
     pub(crate) fn persist_config(&self) {
+        // Whatever was just edited (hosts, mostly), the broker follows.
+        if let Some(broker) = &self.agent {
+            broker.refresh(&self.config);
+        }
         if let Err(e) = self.config.save() {
             log::warn!("saving config: {e:#}");
         }
@@ -895,6 +916,8 @@ impl eframe::App for App {
         self.poll_background(ctx);
         // SFTP events, and any remote file they finished reading.
         self.poll_sftp();
+        // Agent broker events: consent questions, session prompts.
+        self.poll_agent();
         // Easter eggs that are running (party mode, the rain).
         self.update_eggs(ctx);
 
@@ -1335,6 +1358,11 @@ impl App {
         let image_changed = config.background_image != self.config.background_image;
         config.font = font;
         self.config = config;
+        // The settings modal's live draft flows through here too, so
+        // the broker follows every config change the app applies.
+        if let Some(broker) = &self.agent {
+            broker.refresh(&self.config);
+        }
 
         // Load or drop the background image first: the chrome opacity below
         // depends on whether an image ended up loaded.

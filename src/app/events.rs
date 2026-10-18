@@ -1203,7 +1203,16 @@ impl App {
         if submit {
             let text = self.prompt_text.clone();
             let remember = self.should_remember(&prompt);
-            let profile_name = self.tabs.get(prompt.tab).and_then(|t| t.profile.clone());
+            let profile_name = match prompt.source {
+                PromptSource::Tab(tab) => self.tabs.get(tab).and_then(|t| t.profile.clone()),
+                // Broker sessions name their own profile; the keyring
+                // remember-box works exactly as it does for panes.
+                PromptSource::Agent => match &prompt.kind {
+                    PromptKind::Password { profile, .. }
+                    | PromptKind::Passphrase { profile, .. } => profile.clone(),
+                    _ => None,
+                },
+            };
             if let (Some(profile), true) = (profile_name, remember) {
                 match &prompt.kind {
                     PromptKind::Password { .. } => {
@@ -1232,6 +1241,35 @@ impl App {
             PromptKind::Passphrase { remember, .. } => *remember,
             PromptKind::HostKey { .. } => false,
             PromptKind::Keyboard { .. } => false,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Agent broker
+    // -----------------------------------------------------------------------
+
+    /// Drain the agent broker: consent questions queue for their modal,
+    /// session prompts join the same queue the panes use.
+    pub(crate) fn poll_agent(&mut self) {
+        let events = match self.agent.as_ref() {
+            Some(broker) => broker.drain(),
+            None => return,
+        };
+        for event in events {
+            match event {
+                AgentEvent::Consent(request) => {
+                    self.consents.push_back((self.now, request));
+                }
+                AgentEvent::Prompt {
+                    profile,
+                    request,
+                    reply,
+                } => {
+                    let prompt =
+                        ui::prompt_from_request(PromptSource::Agent, request, reply, Some(profile));
+                    self.prompts.push_back(prompt);
+                }
+            }
         }
     }
 }

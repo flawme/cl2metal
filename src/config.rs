@@ -227,6 +227,9 @@ pub struct Config {
     /// Which surface to open on: "terminal" or "editor".
     #[serde(default = "default_view")]
     pub view: String,
+    /// Agent access (MCP / `cl2metal mcp`) settings.
+    #[serde(default)]
+    pub agent_api: AgentApiConfig,
 }
 
 /// The surface a fresh install opens on.
@@ -324,6 +327,41 @@ impl EditorConfig {
     }
 }
 
+/// Agent access (MCP / `cl2metal mcp`) settings, persisted under
+/// `[agent_api]` in config.toml. Credentials are never part of this: the
+/// keyring and the consent modal stay the only holders.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentApiConfig {
+    /// Let local coding agents broker SSH sessions through this app.
+    /// Every new session still requires human consent.
+    pub enabled: bool,
+    /// Screen agent commands: known read-only ones run without asking,
+    /// everything else — and anything touching `.env`, dotfiles or
+    /// key material, always — needs an Allow click. One "allow all
+    /// future commands" click covers the rest of a session.
+    pub confirm_commands: bool,
+    /// When set, only these profile names may be used by agents.
+    pub allow_profiles: Option<Vec<String>>,
+    /// Default exec timeout in milliseconds when a request does not
+    /// carry its own (`agent::protocol::DEFAULT_TIMEOUT_MS` is the
+    /// single source this default reads).
+    pub default_timeout_ms: u64,
+}
+
+impl Default for AgentApiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            // Screening on by default: an unattended agent must not be
+            // able to run anything beyond read-only commands.
+            confirm_commands: true,
+            allow_profiles: None,
+            default_timeout_ms: crate::agent::protocol::DEFAULT_TIMEOUT_MS,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -358,6 +396,7 @@ impl Default for Config {
             recent_hosts: Vec::new(),
             editor_root: None,
             view: default_view(),
+            agent_api: AgentApiConfig::default(),
         }
     }
 }
@@ -773,6 +812,42 @@ plain.example.com ssh-ed25519 AAAAC3Nza
         // Copy-on-select and notifications default to on.
         assert!(back.copy_on_select);
         assert!(back.desktop_notifications);
+    }
+
+    #[test]
+    fn agent_api_section_round_trips_and_defaults() {
+        // A config that sets the section survives the round trip.
+        let config = Config {
+            agent_api: AgentApiConfig {
+                enabled: false,
+                confirm_commands: false,
+                allow_profiles: Some(vec!["vps".to_owned()]),
+                default_timeout_ms: 5000,
+            },
+            ..Config::default()
+        };
+        let text = toml::to_string_pretty(&config).expect("serialize");
+        assert!(
+            text.contains("[agent_api]"),
+            "the section must be its own TOML table"
+        );
+        let back: Config = toml::from_str(&text).expect("deserialize");
+        assert!(!back.agent_api.enabled);
+        assert!(!back.agent_api.confirm_commands);
+        assert_eq!(back.agent_api.allow_profiles, Some(vec!["vps".to_owned()]));
+        assert_eq!(back.agent_api.default_timeout_ms, 5000);
+
+        // An older config without the section gets the defaults: enabled,
+        // command screening on, no profile restriction, the standard
+        // timeout.
+        let back: Config = toml::from_str("font = \"mono\"\n").expect("deserialize");
+        assert!(back.agent_api.enabled);
+        assert!(
+            back.agent_api.confirm_commands,
+            "commands must be screened unless the user says otherwise"
+        );
+        assert_eq!(back.agent_api.allow_profiles, None);
+        assert_eq!(back.agent_api.default_timeout_ms, 15_000);
     }
 
     #[test]

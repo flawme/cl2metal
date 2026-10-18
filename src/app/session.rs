@@ -813,8 +813,12 @@ impl App {
             SessionMsg::SshRequest(req, reply) => {
                 let profile = self.tabs[tab_i].panes[pane_i].profile.clone();
                 self.prompt_text.clear();
-                self.prompts
-                    .push_back(ui::prompt_from_request(tab_i, req, reply, profile));
+                self.prompts.push_back(ui::prompt_from_request(
+                    PromptSource::Tab(tab_i),
+                    req,
+                    reply,
+                    profile,
+                ));
                 ctx.request_repaint();
                 false
             }

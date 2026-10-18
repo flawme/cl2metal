@@ -1,5 +1,6 @@
 //! egui chrome: tab bar, command palette, settings, and SSH prompts.
 
+use crate::agent::server::{ConsentAnswer, ConsentKind, ConsentRequest};
 use crate::config::{AuthMethod, BackgroundFit, Config, CursorShape, SshProfile};
 use crate::term::SshRequest;
 use crate::theme::Theme;
@@ -90,9 +91,17 @@ pub enum CloseScope {
     App,
 }
 
+/// Where an SSH question came from. Panes resolve their profile through
+/// the tab; broker sessions carry the profile name with them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PromptSource {
+    Tab(usize),
+    Agent,
+}
+
 /// An interactive SSH question awaiting the user's answer.
 pub struct SshPrompt {
-    pub tab: usize,
+    pub source: PromptSource,
     pub kind: PromptKind,
     pub reply: Sender<Result<String, ()>>,
 }
@@ -1164,6 +1173,18 @@ pub fn show_settings(
                     &mut draft.allow_osc52_read,
                     "Allow programs to read the clipboard (OSC 52)",
                 );
+                check_row(
+                    ui,
+                    theme,
+                    &mut draft.agent_api.enabled,
+                    "Let local coding agents use SSH profiles (MCP)",
+                );
+                check_row(
+                    ui,
+                    theme,
+                    &mut draft.agent_api.confirm_commands,
+                    "Approve agent commands before they run (read-only ones excepted)",
+                );
 
                 ui.add_space(8.0);
                 section_header(ui, theme, "KNOWN HOSTS");
@@ -1997,7 +2018,7 @@ pub fn show_prompt(
 
 /// Map a [`SshRequest`] into overlay state.
 pub fn prompt_from_request(
-    tab: usize,
+    source: PromptSource,
     req: SshRequest,
     reply: Sender<Result<String, ()>>,
     profile: Option<String>,
@@ -2026,7 +2047,131 @@ pub fn prompt_from_request(
             profile,
         },
     };
-    SshPrompt { tab, kind, reply }
+    SshPrompt {
+        source,
+        kind,
+        reply,
+    }
+}
+
+/// Draw the agent consent modal: a program on this machine wants
+/// something through this app — an SSH session, or with screening on,
+/// one command. `remaining` is how long the broker keeps the question
+/// open before it denies on the user's behalf.
+pub fn show_consent(
+    ui: &mut egui::Ui,
+    theme: &Theme,
+    request: &ConsentRequest,
+    remaining: f64,
+    decision: &mut Option<ConsentAnswer>,
+) {
+    match &request.kind {
+        ConsentKind::Connect {
+            profile,
+            user_at_host,
+        } => {
+            modal_frame(ui, theme, "Agent SSH access", |ui| {
+                ui.label(format!(
+                    "{} on this machine is asking to open an SSH session through this app.",
+                    request.requester
+                ));
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("Profile")
+                        .weak()
+                        .color(color32(theme.ui.text_dim)),
+                );
+                ui.monospace(profile.as_str());
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("Connects as")
+                        .weak()
+                        .color(color32(theme.ui.text_dim)),
+                );
+                ui.monospace(user_at_host.as_str());
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Allowing opens a session that can run any command as this user. \
+                         Every command is written to the local agent audit log. \
+                         Unanswered requests close in {} s.",
+                        remaining as u32
+                    ))
+                    .weak()
+                    .size(11.5)
+                    .color(color32(theme.ui.text_dim)),
+                );
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if primary_button(ui, theme, "Allow", 110.0).clicked() {
+                        *decision = Some(ConsentAnswer::Allow);
+                    }
+                    if secondary_button(ui, theme, "Deny", 88.0).clicked() {
+                        *decision = Some(ConsentAnswer::Deny);
+                    }
+                });
+            });
+        }
+        ConsentKind::Exec {
+            command,
+            user_at_host,
+        } => {
+            modal_frame(ui, theme, "Agent command approval", |ui| {
+                ui.label(format!(
+                    "{} on this machine wants to run a command over {}:",
+                    request.requester, user_at_host
+                ));
+                ui.add_space(6.0);
+                ui.monospace(display_command(command));
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Read-only commands run without asking; everything else needs your \
+                         approval. \"Allow all future\" stops asking for the rest of this \
+                         session. Unanswered requests close in {} s.",
+                        remaining as u32
+                    ))
+                    .weak()
+                    .size(11.5)
+                    .color(color32(theme.ui.text_dim)),
+                );
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if primary_button(ui, theme, "Allow", 88.0).clicked() {
+                        *decision = Some(ConsentAnswer::Allow);
+                    }
+                    if secondary_button(ui, theme, "Don't allow", 120.0).clicked() {
+                        *decision = Some(ConsentAnswer::Deny);
+                    }
+                    if secondary_button(ui, theme, "Allow all future", 140.0).clicked() {
+                        *decision = Some(ConsentAnswer::AllowAll);
+                    }
+                });
+            });
+        }
+    }
+}
+
+/// The command as the modal draws it: control characters become their
+/// escapes (nothing moves the cursor or clears the panel), and the
+/// very long tail folds into an ellipsis so one modal stays one
+/// screen.
+fn display_command(command: &str) -> String {
+    let mut text = String::new();
+    for c in command.chars() {
+        match c {
+            '\n' => text.push('\n'),
+            c if c.is_control() => text.push_str(&format!("\\u{:04x}", c as u32)),
+            c => text.push(c),
+        }
+    }
+    if text.chars().count() > 400 {
+        let mut cut: String = text.chars().take(400).collect();
+        cut.push_str(" …");
+        cut
+    } else {
+        text
+    }
 }
 
 #[cfg(test)]
