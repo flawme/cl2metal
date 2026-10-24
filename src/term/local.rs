@@ -10,8 +10,11 @@ pub(crate) fn default_shell() -> String {
         // PowerShell is the better shell when it is there: `pwsh` is the
         // cross-platform one, `powershell.exe` ships with Windows.
         for exe in ["pwsh.exe", "powershell.exe"] {
-            if find_on_path(exe) {
-                return exe.to_owned();
+            if let Some(path) = find_on_path(exe) {
+                // portable-pty passes the program to CreateProcessW directly;
+                // unlike std::process::Command it does not reliably search
+                // PATH for a bare executable name.
+                return path;
             }
         }
         std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_owned())
@@ -22,11 +25,15 @@ pub(crate) fn default_shell() -> String {
     }
 }
 
-/// Is `exe` on PATH?
+/// Resolve `exe` to a full path from PATH.
 #[cfg(windows)]
-fn find_on_path(exe: &str) -> bool {
-    std::env::var_os("PATH")
-        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(exe).is_file()))
+fn find_on_path(exe: &str) -> Option<String> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|dir| dir.join(exe))
+            .find(|path| path.is_file())
+            .map(|path| path.to_string_lossy().into_owned())
+    })
 }
 
 /// Spawn a local shell and return `(client_tx, msg_rx, shell_pid)` for the
