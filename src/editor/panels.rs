@@ -362,9 +362,7 @@ impl Editor {
                 font.clone(),
                 style.dim,
             );
-            let mut enter = false;
-            let mut escape = false;
-            if is_delete {
+            let (enter, escape) = if is_delete {
                 painter.text(
                     egui::pos2(dialog.min.x + 8.0, dialog.min.y + row_h + 10.0),
                     egui::Align2::LEFT_CENTER,
@@ -372,8 +370,10 @@ impl Editor {
                     font.clone(),
                     style.error,
                 );
-                enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                (
+                    ui.input(|i| i.key_pressed(egui::Key::Enter)),
+                    ui.input(|i| i.key_pressed(egui::Key::Escape)),
+                )
             } else {
                 let field = egui::Rect::from_min_size(
                     egui::pos2(dialog.min.x + 8.0, dialog.min.y + row_h + 4.0),
@@ -384,14 +384,15 @@ impl Editor {
                     egui::TextEdit::singleline(&mut text).font(font.clone()),
                 );
                 response.request_focus();
-                enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
                 match &mut self.tree.prompt {
                     Some(TreePrompt::New { name, .. }) => *name = text.clone(),
                     Some(TreePrompt::Rename { name, .. }) => *name = text.clone(),
                     _ => {}
                 }
-            }
+                (enter, escape)
+            };
             if enter {
                 self.tree.prompt = None;
                 let result = match &prompt {
@@ -424,7 +425,7 @@ impl Editor {
                             .file_name()
                             .map(|n| n.to_string_lossy().into_owned())
                             .unwrap_or_default();
-                        self.say(format!("{name}"));
+                        self.say(name);
                     }
                     Err(e) => self.say(format!("{e}")),
                 }

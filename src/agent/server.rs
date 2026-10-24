@@ -314,7 +314,29 @@ mod unix {
             };
             (rc == 0).then_some((cred.pid as u32, cred.uid))
         }
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::fd::AsRawFd as _;
+            let fd = stream.as_raw_fd();
+            let mut pid: libc::pid_t = 0;
+            let mut pid_len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+            // macOS exposes the effective peer pid with LOCAL_PEEREPID, and `getpeereid`
+            // supplies its effective uid for the same-user check.
+            let pid_rc = unsafe {
+                libc::getsockopt(
+                    fd,
+                    libc::SOL_LOCAL,
+                    libc::LOCAL_PEEREPID,
+                    &mut pid as *mut libc::pid_t as *mut libc::c_void,
+                    &mut pid_len,
+                )
+            };
+            let (mut uid, mut gid) = (0, 0);
+            let uid_rc = unsafe { libc::getpeereid(fd, &mut uid, &mut gid) };
+            (pid_rc == 0 && uid_rc == 0 && pid > 0).then_some((pid as u32, uid))
+        }
         #[cfg(not(target_os = "linux"))]
+        #[cfg(not(target_os = "macos"))]
         {
             let _ = stream;
             None
@@ -330,7 +352,15 @@ mod unix {
             .ok()
             .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty());
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
+        let comm = std::process::Command::new("ps")
+            .args(["-o", "comm=", "-p", &pid.to_string()])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+            .filter(|name| !name.is_empty());
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let comm = None;
         match comm {
             Some(comm) => format!("{comm} (pid {pid})"),
@@ -1064,6 +1094,32 @@ mod tests {
 
         // A pid nothing can own reads as the bare number.
         assert_eq!(requester_name(2_147_483_647), "pid 2147483647");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_peer_credentials_identify_the_client_process() {
+        let dir = std::env::temp_dir().join(format!("cl2metal-peer-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("sock");
+        let _ = std::fs::remove_file(&path);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        rt.block_on(async {
+            let listener = bind_socket(&path).expect("bind socket");
+            let client = tokio::net::UnixStream::connect(&path)
+                .await
+                .expect("connect client");
+            let (server, _) = listener.accept().await.expect("accept client");
+            let (pid, uid) = peer_creds(&server).expect("read peer credentials");
+            assert_eq!(pid, std::process::id());
+            assert_eq!(uid, unsafe { libc::getuid() });
+            drop(client);
+        });
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The regression pin for the launch crash: binding must not need a

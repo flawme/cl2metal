@@ -51,7 +51,7 @@ impl SftpPanel {
         let (req_tx, req_rx) = flume::unbounded();
         let host = format!("{}@{}:{}", params.user, params.host, params.port);
         sftp::spawn(params, wake, tx, req_rx);
-        let panel = Self {
+        Self {
             host,
             cwd: "/".to_owned(),
             entries: Vec::new(),
@@ -66,8 +66,7 @@ impl SftpPanel {
             pending_download: None,
             tx: req_tx,
             rx,
-        };
-        panel
+        }
     }
 
     /// Send a request to the worker.

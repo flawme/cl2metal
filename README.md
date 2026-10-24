@@ -303,7 +303,7 @@ Requires a Vulkan/Metal/DX12-capable GPU (wgpu backend).
 
 ## Platforms
 
-Linux is the primary target; Windows builds and runs from the same tree. The
+Linux is the primary target; Windows and macOS build and run from the same tree. The
 OS-specific code lives in one module per platform (a file, or a folder when
 it needs helpers), so a new platform is a new module plus the wiring:
 
@@ -312,27 +312,26 @@ Building on Windows needs **CMake** on `PATH`: the SSH crypto backend
 `AWS_LC_SYS_PREBUILT_NASM=1` (`.cargo/config.toml`), so the backend uses its
 prebuilt assembly objects.
 
-| | Linux | Windows |
-| --- | --- | --- |
-| Terminal, panes, tabs, renderer, SSH | yes | yes |
-| SSH agent auth | the `SSH_AUTH_SOCK` socket | the OpenSSH agent's named pipe (`\\.\pipe\openssh-ssh-agent`) |
-| `:info` panel | `/proc` | Win32 counters (`GlobalMemoryStatusEx`, `GetProcessTimes`, …) |
-| Default shell | `$SHELL`, else `/bin/bash` | `pwsh.exe`, else `powershell.exe`, else `cmd.exe` |
-| Desktop notifications | `notify-send` | a PowerShell balloon |
-| Shell integration (OSC 133 marks, prompt jumping, exit-status dot) | bash/zsh hooks | not yet |
-| `--install-desktop` | `.desktop` entry + icon | a Start Menu shortcut |
-| Primary selection (middle-click paste) | X11 | not applicable |
+| | Linux | Windows | macOS |
+| --- | --- | --- | --- |
+| Terminal, panes, tabs, renderer, SSH | yes | yes | yes |
+| SSH agent auth | the `SSH_AUTH_SOCK` socket | the OpenSSH agent's named pipe (`\\.\pipe\openssh-ssh-agent`) | the `SSH_AUTH_SOCK` socket |
+| `:info` panel | `/proc` | Win32 counters | `sysctl`, `vm_stat`, and `ps` |
+| Default shell | `$SHELL`, else `/bin/bash` | `pwsh.exe`, else `powershell.exe`, else `cmd.exe` | `$SHELL`, else `/bin/bash` |
+| Desktop notifications | `notify-send` | a PowerShell balloon | `osascript` notification |
+| Shell integration (OSC 133 marks, prompt jumping, exit-status dot) | bash/zsh hooks | not yet | bash/zsh hooks |
+| `--install-desktop` | `.desktop` entry + icon | a Start Menu shortcut | a user-local `~/Applications/cl2metal.app` bundle |
+| Primary selection (middle-click paste) | X11 | not applicable | not applicable |
 
 Where the code lives:
 
 ```
-src/platform/linux.rs, src/platform/windows/       notifier, desktop install, default font
-src/app/sysinfo/linux.rs, src/app/sysinfo/windows/  the :info panel's readers
-src/term/linux.rs, src/term/windows/               /proc walk vs. Win32 process inspection
+src/platform/{linux.rs,macos.rs,windows/}       notifications, app install, default font
+src/app/sysinfo/{linux.rs,macos.rs,windows/}     the :info panel's readers
+src/term/{linux.rs,macos.rs,windows/}            process inspection and shell cwd
 ```
 
-CI runs `clippy` and the test suite on both `ubuntu-latest` and
-`windows-latest`, so the Windows path cannot rot unnoticed.
+CI runs `clippy` and the test suite on Linux, Windows, and macOS.
 
 ## Install
 
@@ -352,6 +351,9 @@ path written is printed to stdout.
 On Windows, the same command writes `cl2metal.lnk` into the Start Menu
 (`%APPDATA%\Microsoft\Windows\Start Menu\Programs`), pointing at the running
 executable, so the app appears in the Start Menu and in search.
+
+On macOS, it creates `~/Applications/cl2metal.app` and points its executable
+to the binary that ran the command.
 
 ```sh
 cl2metal --version    # print the version and exit (also -V)

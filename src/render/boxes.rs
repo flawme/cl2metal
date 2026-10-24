@@ -1593,7 +1593,7 @@ mod tests {
         let mut count = 0;
         let mut outside = 0;
         let ok = paint_arc('\u{256D}', CW, CH, &mut |x, y, v| {
-            assert!(v > 0 && v <= 255);
+            assert!(v > 0);
             if x >= CW.ceil() as u32 || y >= CH.ceil() as u32 {
                 outside += 1;
             }

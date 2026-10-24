@@ -87,7 +87,7 @@ pub(crate) enum Command {
     NextSplit,
     PrevSplit,
     // Application.
-    CommandPalette,
+    Palette,
     ToggleTerminal,
     ToggleSshMode,
     Keybindings,
@@ -205,7 +205,7 @@ impl Command {
             Command::CloseSplit => "close_split",
             Command::NextSplit => "next_split",
             Command::PrevSplit => "prev_split",
-            Command::CommandPalette => "command_palette",
+            Command::Palette => "command_palette",
             Command::ToggleTerminal => "toggle_terminal",
             Command::ToggleSshMode => "toggle_ssh_mode",
             Command::Keybindings => "keybindings",
@@ -306,7 +306,7 @@ impl Command {
             "close_split" => Command::CloseSplit,
             "next_split" => Command::NextSplit,
             "prev_split" => Command::PrevSplit,
-            "command_palette" => Command::CommandPalette,
+            "command_palette" => Command::Palette,
             "toggle_terminal" => Command::ToggleTerminal,
             "toggle_ssh_mode" => Command::ToggleSshMode,
             "keybindings" => Command::Keybindings,
@@ -346,7 +346,7 @@ impl Command {
                 | Command::AddCursorBelow
                 | Command::AddCursorAbove
                 | Command::ClearExtraCursors
-                | Command::CommandPalette
+                | Command::Palette
                 | Command::ToggleTerminal
                 | Command::ToggleSshMode
                 | Command::Keybindings
@@ -498,7 +498,7 @@ mod tests {
             Command::AddCursorBelow,
             Command::ToggleTree,
             Command::SplitRight,
-            Command::CommandPalette,
+            Command::Palette,
             Command::GotoLine,
             Command::FormatDocument,
             Command::Escape,

@@ -8,6 +8,8 @@ pub mod integration;
 #[cfg(target_os = "linux")]
 pub mod linux;
 pub mod local;
+#[cfg(target_os = "macos")]
+pub mod macos;
 pub mod sftp;
 pub mod ssh;
 #[cfg(windows)]

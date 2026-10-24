@@ -159,11 +159,13 @@ fn a_profile_keeps_its_group_and_forwards_through_toml() {
 
 #[test]
 fn the_workspace_state_survives_a_config_round_trip() {
-    let mut config = Config::default();
-    config.ssh_mode = true;
-    config.favorites = vec!["prod".to_owned()];
-    config.recent_hosts = vec!["prod".to_owned(), "staging".to_owned()];
-    config.view = "editor".to_owned();
+    let mut config = Config {
+        ssh_mode: true,
+        favorites: vec!["prod".to_owned()],
+        recent_hosts: vec!["prod".to_owned(), "staging".to_owned()],
+        view: "editor".to_owned(),
+        ..Config::default()
+    };
     config
         .editor_keys
         .insert("save".to_owned(), "ctrl+alt+s".to_owned());

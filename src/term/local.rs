@@ -365,10 +365,13 @@ fn start_threads(
 #[cfg(target_os = "linux")]
 pub use super::linux::running_children;
 
+#[cfg(target_os = "macos")]
+pub use super::macos::running_children;
+
 #[cfg(windows)]
 pub use super::windows::running_children;
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 pub fn running_children(_pid: u32) -> Vec<String> {
     Vec::new()
 }
@@ -380,10 +383,13 @@ pub fn running_children(_pid: u32) -> Vec<String> {
 #[cfg(target_os = "linux")]
 pub use super::linux::shell_cwd;
 
+#[cfg(target_os = "macos")]
+pub use super::macos::shell_cwd;
+
 #[cfg(windows)]
 pub use super::windows::shell_cwd;
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 pub fn shell_cwd(_pid: u32) -> Option<std::path::PathBuf> {
     None
 }
@@ -397,6 +403,13 @@ mod tests {
     fn the_shell_directory_can_be_read_from_proc() {
         // The test runner itself is a process, and /proc reports its cwd.
         assert_eq!(shell_cwd(std::process::id()), std::env::current_dir().ok());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn the_shell_directory_can_be_read_on_macos() {
+        let cwd = shell_cwd(std::process::id());
+        assert_eq!(cwd, std::env::current_dir().ok());
     }
 
     #[test]
@@ -436,6 +449,20 @@ mod tests {
             !names.iter().any(|n| n == "sleep"),
             "the reaped child is gone: {names:?}"
         );
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn a_shell_with_a_running_child_says_so_on_macos() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        let names = running_children(std::process::id());
+        assert!(names.iter().any(|name| name == "sleep"), "{names:?}");
+        let _ = child.kill();
+        let _ = child.wait();
     }
 
     #[test]

@@ -33,8 +33,9 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
 
+      # Reserved editor and agent APIs are intentionally dormant on some targets.
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings -A dead_code
 
       - name: Test
         run: cargo test --all-targets
@@ -54,7 +55,30 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings -A dead_code
+
+      - name: Test
+        run: cargo test --all-targets
+
+  macos:
+    name: macOS build + test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings -A dead_code
 
       - name: Test
         run: cargo test --all-targets

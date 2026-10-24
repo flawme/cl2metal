@@ -479,7 +479,7 @@ impl Editor {
     /// Delete forward at every cursor.
     pub(crate) fn delete_forward(&mut self) {
         let buf = self.buffer_mut();
-        let mut cursors = buf.cursors.clone();
+        let cursors = buf.cursors.clone();
         let mut order: Vec<usize> = (0..cursors.len()).collect();
         order.sort_by_key(|i| std::cmp::Reverse(cursors[*i].pos));
         buf.begin_group();

@@ -158,7 +158,7 @@ pub(crate) fn step(buf: &Buffer, pos: Pos, motion: Motion) -> Pos {
         Motion::LineStart => Pos::new(pos.line, 0),
         Motion::LineEnd => {
             let len = buf.line_len(pos.line);
-            Pos::new(pos.line, len.saturating_sub(1).max(0).min(len))
+            Pos::new(pos.line, len.saturating_sub(1))
         }
         Motion::FirstNonBlank => Pos::new(pos.line, buf.first_non_blank(pos.line)),
         Motion::WordNext => word_next(buf, pos, class, class_at),

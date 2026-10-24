@@ -68,7 +68,7 @@ impl Editor {
             Command::CloseSplit => self.close_split(),
             Command::NextSplit => self.layout.focus_next(true),
             Command::PrevSplit => self.layout.focus_next(false),
-            Command::CommandPalette => {
+            Command::Palette => {
                 let palette = Palette::new(self);
                 self.palette = Some(palette);
             }

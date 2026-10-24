@@ -327,6 +327,7 @@ impl Editor {
     }
 
     /// Draw one pane: gutter, text, selections, cursors.
+    #[allow(clippy::too_many_arguments)]
     fn draw_pane(
         &mut self,
         ui: &mut egui::Ui,
@@ -680,15 +681,14 @@ impl Editor {
                 ui.id().with(("editor-bar", index)),
                 egui::Sense::click_and_drag(),
             );
-            if bar.dragged() || bar.clicked() {
-                if let Some(point) = bar.interact_pointer_pos() {
-                    let target =
-                        scroll_at_pointer(point.y, track.min.y, travel, thumb_h, max_scroll);
-                    let buf = &mut self.buffers[index];
-                    buf.scroll[1] = target;
-                    // The thumb is the position: no easing lag while dragging.
-                    buf.scroll_display = buf.scroll[1];
-                }
+            if (bar.dragged() || bar.clicked())
+                && let Some(point) = bar.interact_pointer_pos()
+            {
+                let target = scroll_at_pointer(point.y, track.min.y, travel, thumb_h, max_scroll);
+                let buf = &mut self.buffers[index];
+                buf.scroll[1] = target;
+                // The thumb is the position: no easing lag while dragging.
+                buf.scroll_display = buf.scroll[1];
             }
             let hot = bar.hovered() || bar.dragged();
             painter.rect_filled(
@@ -710,17 +710,17 @@ impl Editor {
             ui.id().with(("editor-pane", index)),
             egui::Sense::click_and_drag(),
         );
-        if response.clicked() || response.dragged() {
-            if let Some(point) = response.interact_pointer_pos() {
-                let pos = self.point_to_pos(index, point, geometry);
-                let extend = response.dragged() || ui.input(|i| i.modifiers.shift);
-                let kind = if ui.input(|i| i.modifiers.alt) {
-                    VisualKind::Block
-                } else {
-                    VisualKind::Char
-                };
-                self.click_at(pos, extend, kind);
-            }
+        if (response.clicked() || response.dragged())
+            && let Some(point) = response.interact_pointer_pos()
+        {
+            let pos = self.point_to_pos(index, point, geometry);
+            let extend = response.dragged() || ui.input(|i| i.modifiers.shift);
+            let kind = if ui.input(|i| i.modifiers.alt) {
+                VisualKind::Block
+            } else {
+                VisualKind::Char
+            };
+            self.click_at(pos, extend, kind);
         }
         if response.double_clicked()
             && let Some(point) = response.interact_pointer_pos()

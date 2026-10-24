@@ -1,31 +1,36 @@
 //! The `:info` panel: a neofetch-style summary of the machine and the session.
 //!
 //! The panel itself is platform-agnostic; the facts come from one folder per
-//! OS (`linux/` reads `/proc`, `windows/` calls the Win32 counters), so adding
-//! a platform is a new file plus the two lines of wiring below.
+//! OS (`linux/` reads `/proc`, `macos/` uses system utilities and `windows/`
+//! calls Win32 counters), so adding a platform is a new file plus the wiring.
 
 use super::*;
 
-// One folder per OS: the /proc parsing and the Win32 calls stay out of the
-// panel code.
-#[cfg(unix)]
+// Keep OS readers out of the panel code.
+#[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(windows)]
 mod windows;
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use linux as platform;
+#[cfg(target_os = "macos")]
+use macos as platform;
 #[cfg(windows)]
 use windows as platform;
 
 /// Only the tests reach for the parser directly; the panel uses `cpu_line`.
-#[cfg(all(unix, test))]
+#[cfg(all(target_os = "linux", test))]
 pub(crate) use platform::cpu_model;
 pub(crate) use platform::{
     cpu_line, hostname, memory_line, os_line, process_cpu_ticks, process_rss_kib, process_threads,
     total_memory_kib, uptime_line,
 };
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
+pub(crate) use platform::{kernel_line, load_line};
+#[cfg(target_os = "macos")]
 pub(crate) use platform::{kernel_line, load_line};
 
 /// The wordmark, ANSI-shadow style.
@@ -55,14 +60,14 @@ impl SysInfo {
         rows.push(("OS".to_owned(), os_line()));
         // Kernel and load average are unix notions; the rows simply do not
         // exist where they would have nothing to say.
-        #[cfg(unix)]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         rows.push(("Kernel".to_owned(), kernel_line()));
         rows.push(("CPU".to_owned(), cpu_line()));
         rows.push(("GPU".to_owned(), app.gpu.clone()));
         rows.push(("Memory".to_owned(), memory_line()));
         rows.push(("App RAM".to_owned(), process_memory_line()));
         rows.push(("App CPU".to_owned(), process_cpu_line(app)));
-        #[cfg(unix)]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         rows.push(("Load".to_owned(), load_line()));
         rows.push(("Uptime".to_owned(), uptime_line()));
         rows.push(("Shell".to_owned(), shell_line(app)));
