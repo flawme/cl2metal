@@ -926,7 +926,7 @@ mod tests {
     use super::unix::*;
     use super::*;
     use crate::agent::protocol;
-    use crate::config::AuthMethod;
+    use crate::config::{AgentApiConfig, AuthMethod};
     use std::path::PathBuf;
 
     fn profile(name: &str) -> SshProfile {
@@ -969,9 +969,14 @@ mod tests {
 
     #[test]
     fn agents_see_only_allowed_profiles() {
-        let mut config = Config::default();
-        config.profiles = vec![profile("alpha"), profile("beta")];
-        config.agent_api.allow_profiles = Some(vec!["alpha".into()]);
+        let config = Config {
+            profiles: vec![profile("alpha"), profile("beta")],
+            agent_api: AgentApiConfig {
+                allow_profiles: Some(vec!["alpha".into()]),
+                ..AgentApiConfig::default()
+            },
+            ..Config::default()
+        };
         let shared = Shared::from_config(&config);
 
         assert!(shared.allowed("alpha"));
@@ -997,8 +1002,10 @@ mod tests {
 
     #[test]
     fn refresh_flips_the_live_settings() {
-        let mut config = Config::default();
-        config.profiles = vec![profile("alpha")];
+        let config = Config {
+            profiles: vec![profile("alpha")],
+            ..Config::default()
+        };
         let shared = Shared::from_config(&config);
         assert!(shared.gate().is_ok());
         assert!(
@@ -1006,10 +1013,15 @@ mod tests {
             "screening defaults to on with the config"
         );
 
-        let mut saved = Config::default();
-        saved.agent_api.enabled = false;
-        saved.agent_api.confirm_commands = false;
-        saved.profiles.clear();
+        let saved = Config {
+            agent_api: AgentApiConfig {
+                enabled: false,
+                confirm_commands: false,
+                ..AgentApiConfig::default()
+            },
+            profiles: Vec::new(),
+            ..Config::default()
+        };
         shared.refresh(&saved);
 
         assert!(shared.gate().is_err());

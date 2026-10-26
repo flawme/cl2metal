@@ -75,4 +75,3 @@ pub fn shell_cwd(pid: u32) -> Option<PathBuf> {
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
 }
-

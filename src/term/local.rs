@@ -130,7 +130,6 @@ fn start_tasks(
     client_rx: flume::Receiver<ClientMsg>,
     msg_tx: MsgTx,
 ) -> anyhow::Result<()> {
-    use std::os::fd::AsRawFd;
     let fd = master
         .as_raw_fd()
         .ok_or_else(|| anyhow::anyhow!("the pty has no file descriptor"))?;

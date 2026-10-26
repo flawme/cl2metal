@@ -1,7 +1,5 @@
 //! Application state: tabs, input routing, session plumbing, and layout.
 
-#[cfg(unix)]
-use crate::agent::server::ConsentKind;
 use crate::agent::server::{
     self as agent_server, AgentEvent, CONSENT_TIMEOUT_SECS, ConsentAnswer, ConsentRequest,
 };
