@@ -56,7 +56,7 @@ the published checksum, and install to `~/.local/bin` (Linux/macOS) or
 `%LOCALAPPDATA%\cl2metal` (Windows), telling you if the directory is not on
 your `PATH` yet — then ask, yes or no, whether to add the app to your
 application menu / Start Menu / `~/Applications`. The Linux binary is built
-against a glibc 2.31 baseline, and the Windows one links its C runtime
+against a glibc 2.35 baseline, and the Windows one links its C runtime
 statically, so one download runs on older desktops without extra packages.
 
 From source instead:

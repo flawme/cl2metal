@@ -12,15 +12,18 @@ permissions:
 
 jobs:
   # Linux builds inside an old-baseline container so the binary's glibc
-  # requirement stays low (bullseye = glibc 2.31): a binary built on the
-  # current ubuntu-latest runner needs glibc 2.43 and refuses to start on
-  # slightly older desktops. macOS and Windows binaries from the hosted
-  # runners have no such skew (their loaders are backwards compatible).
+  # requirement stays low (ubuntu 22.04 = glibc 2.35): a binary built on the
+  # current ubuntu-latest runner needs glibc 2.43 (Ubuntu 26) and refuses to
+  # start on slightly older desktops. Debian 11 bullseye would give 2.31 but
+  # its packages left the main mirrors when LTS ended (August 2026), so
+  # ubuntu:22.04 is the oldest container that still installs cleanly.
+  # macOS and Windows binaries from the hosted runners have no such skew
+  # (their loaders are backwards compatible).
   linux:
     name: build x86_64-unknown-linux-gnu
     runs-on: ubuntu-latest
     container:
-      image: debian:bullseye-slim
+      image: ubuntu:22.04
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
