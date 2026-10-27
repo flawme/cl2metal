@@ -11,22 +11,80 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  # Linux builds inside an old-baseline container so the binary's glibc
+  # requirement stays low (bullseye = glibc 2.31): a binary built on the
+  # current ubuntu-latest runner needs glibc 2.43 and refuses to start on
+  # slightly older desktops. macOS and Windows binaries from the hosted
+  # runners have no such skew (their loaders are backwards compatible).
+  linux:
+    name: build x86_64-unknown-linux-gnu
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bullseye-slim
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Container dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            build-essential cmake perl git curl ca-certificates pkg-config \
+            libssl-dev libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcb1-dev libdbus-1-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        run: |
+          archive=cl2metal-x86_64-unknown-linux-gnu.tar.gz
+          tar -czf "$archive" -C target/release cl2metal
+          sha256sum "$archive" > "$archive.sha256"
+
+      - name: Upload to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            cl2metal-x86_64-unknown-linux-gnu.tar.gz
+            cl2metal-x86_64-unknown-linux-gnu.tar.gz.sha256
+
+  others:
     name: build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    # Pin the deployment target so the linker records 12.0 (the app's own
+    # LSMinimumSystemVersion) instead of whatever SDK the runner has;
+    # rustc, cc and clang otherwise pick different defaults.
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      # The Windows build links its C runtime statically so the exe runs
+      # without the VC++ Redistributable; empty on the macOS legs.
+      RUSTFLAGS: ${{ matrix.rustflags }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            archive: cl2metal-x86_64-unknown-linux-gnu.tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
             archive: cl2metal-aarch64-apple-darwin.tar.gz
+            rustflags: ''
+          # Intel Macs: the hosted x86_64 runners are retired, so the
+          # x86_64 build is cross-compiled on the Apple Silicon runner.
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive: cl2metal-x86_64-apple-darwin.tar.gz
+            rustflags: ''
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             archive: cl2metal-x86_64-pc-windows-msvc.zip
+            rustflags: '-C target-feature=+crt-static'
     steps:
       - uses: actions/checkout@v4
 
@@ -37,14 +95,6 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-
-      - name: System dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
-            libssl-dev pkg-config libdbus-1-dev
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}

@@ -53,4 +53,17 @@ if ($userPath -notlike "*$installDir*") {
 }
 
 & (Join-Path $installDir 'cl2metal.exe') --version
-Write-Host 'cl2metal: run "cl2metal --install-desktop" to add the Start Menu entry'
+
+# Offer the Start Menu entry; default to yes when there is no console to
+# ask in (the same default the sh installer takes).
+$answer = 'y'
+try {
+    $answer = Read-Host 'cl2metal: add the Start Menu entry? [Y/n]'
+} catch {
+    Write-Host 'cl2metal: no interactive console - adding the Start Menu entry'
+}
+if ($answer -match '^[nN]') {
+    Write-Host 'cl2metal: skipped - run "cl2metal --install-desktop" any time'
+} else {
+    & (Join-Path $installDir 'cl2metal.exe') --install-desktop
+}

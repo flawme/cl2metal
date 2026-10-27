@@ -71,4 +71,24 @@ case ":$PATH:" in
 esac
 
 log "installed $("$install_dir/cl2metal" --version 2>/dev/null || echo cl2metal)"
-log "run 'cl2metal --install-desktop' to add the application-menu entry"
+
+# Offer the desktop entry. The script itself arrives on stdin with
+# curl | sh, so the answer must be read from the terminal; the default
+# is yes when there is no terminal to ask (automation, pipes).
+answer="y"
+if [ -r /dev/tty ]; then
+    printf 'cl2metal: add the application-menu entry? [Y/n] '
+    read -r answer < /dev/tty || answer="y"
+fi
+case "$answer" in
+    [nN]*)
+        log "skipped - run 'cl2metal --install-desktop' any time"
+        ;;
+    *)
+        if "$install_dir/cl2metal" --install-desktop; then
+            log "the application-menu entry is in place"
+        else
+            log "the desktop entry failed - run 'cl2metal --install-desktop' to retry"
+        fi
+        ;;
+esac
