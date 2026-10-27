@@ -873,14 +873,23 @@ fn deleting_a_file_from_the_tree_closes_or_detaches_its_buffers() {
 
 #[test]
 fn deleting_from_the_tree_trashes_instead_of_erasing() {
-    let dir = std::env::temp_dir().join(format!("cl2metal-editor-trash-{}", std::process::id()));
+    // The freedesktop spec trashes cross-device files into the source
+    // mount's own /.Trash-$uid, so a fixture in /tmp lands there — not in
+    // the home trash — on hosts where /tmp is a separate mount, as on the
+    // CI runners. Create the fixture on the same filesystem the home
+    // trash lives on, resolved exactly like the trash crate resolves it.
+    let data_home = match std::env::var_os("XDG_DATA_HOME") {
+        Some(v) if !v.is_empty() => std::path::PathBuf::from(v),
+        _ => dirs::home_dir().unwrap().join(".local/share"),
+    };
+    let dir = data_home.join(format!("cl2metal-editor-trash-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let name = "only-trash-me.txt";
     let path = dir.join(name);
     std::fs::write(&path, "gone\n").unwrap();
-    let trash_files = dirs::home_dir().unwrap().join(".local/share/Trash/files");
-    let trash_info = dirs::home_dir().unwrap().join(".local/share/Trash/info");
+    let trash_files = data_home.join("Trash/files");
+    let trash_info = data_home.join("Trash/info");
     // A previous run that died mid-test may have left its copy behind;
     // clear the way so the fresh one lands under its own plain name.
     for base in [&trash_files, &trash_info] {

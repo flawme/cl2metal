@@ -1115,12 +1115,12 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("sock");
         let _ = std::fs::remove_file(&path);
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("runtime");
-        rt.block_on(async {
-            let listener = bind_socket(&path).expect("bind socket");
+        // Bind from this plain test thread the way the GUI thread does, then
+        // let the shared runtime drive both ends: tokio refuses to start a
+        // runtime inside another one, and bind_socket already blocks on the
+        // shared runtime.
+        let listener = bind_socket(&path).expect("bind socket");
+        crate::term::runtime().block_on(async {
             let client = tokio::net::UnixStream::connect(&path)
                 .await
                 .expect("connect client");
