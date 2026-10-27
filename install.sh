@@ -81,7 +81,10 @@ log "installed $("$install_dir/cl2metal" --version 2>/dev/null || echo cl2metal)
 answer="y"
 if [ -r /dev/tty ]; then
     printf 'cl2metal: add the application-menu entry? [Y/n] '
-    read -r answer < /dev/tty || answer="y"
+    # stderr is silenced before the tty open: a terminal-less host
+    # would otherwise print "cannot open /dev/tty" before the default
+    # answer takes over.
+    2>/dev/null read -r answer < /dev/tty || answer="y"
 fi
 case "$answer" in
     [nN]*)
