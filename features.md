@@ -304,9 +304,9 @@ src/app/sysinfo/{linux.rs,macos.rs,windows/}     the :info panel's readers
 src/term/{linux.rs,macos.rs,windows/}            process inspection and shell cwd
 ```
 
-CI runs `clippy` and the test suite on Linux, Windows, and macOS. Windows and
-Linux have been used on real hardware; macOS is verified by CI (Apple-silicon
-runners) but has not yet been driven hands-on.
+CI runs `clippy` and the test suite on Linux, Windows, and macOS. **Windows and
+Linux have been tested on real hardware**; macOS is verified by CI
+(Apple-silicon runners) but has not yet been driven hands-on.
 
 ## Desktop entry
 
