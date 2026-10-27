@@ -115,10 +115,12 @@ mod tests {
     fn icon_is_a_small_self_contained_svg() {
         assert!(ICON_SVG.starts_with("<svg"), "{ICON_SVG}");
         assert!(ICON_SVG.contains("viewBox=\"0 0 256 256\""), "{ICON_SVG}");
-        assert!(ICON_SVG.contains("#1a1b26"), "{ICON_SVG}");
-        assert!(ICON_SVG.contains("#7aa2f7"), "{ICON_SVG}");
+        // The origami prompt mark: both paper planes and the cursor diamond.
+        assert!(ICON_SVG.contains("#fdfaf3"), "{ICON_SVG}");
+        assert!(ICON_SVG.contains("#e9dfc6"), "{ICON_SVG}");
+        assert!(ICON_SVG.contains("#2ea8ee"), "{ICON_SVG}");
         assert!(ICON_SVG.len() < 1024, "icon is {} bytes", ICON_SVG.len());
-        for forbidden in ["<script", "<image", "xlink:href", "url("] {
+        for forbidden in ["<script", "<image", "xlink:href", "url(", "<filter"] {
             assert!(!ICON_SVG.contains(forbidden), "icon contains {forbidden}");
         }
     }

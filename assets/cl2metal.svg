@@ -1,21 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <!-- cl2metal: the terminal prompt as folded paper.
-       Abstract origami - two paper planes meeting in a crease form the
-       chevron; the cursor is a folded diamond in the app's cursor blue
-       (Paper theme: #2ea8ee). Warm ivory over shaded cream, lifted off
-       the desk by a soft shadow. -->
-  <defs>
-    <filter id="lift" x="-30%" y="-30%" width="160%" height="170%">
-      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#1f242c" flood-opacity="0.16"/>
-    </filter>
-  </defs>
-
-  <g filter="url(#lift)" transform="rotate(-7 128 128)">
+  <!-- cl2metal: the terminal prompt as folded paper, abstract origami.
+       Two planes meet in a crease to form the chevron; the cursor is a
+       folded diamond in the Paper theme's blue. No filters and no
+       external references: the icon must stay small and self-contained. -->
+  <g transform="rotate(-7 128 128)">
     <!-- top arm of the fold, catching the light -->
     <path d="M46 48 L186 128 L160 128 L72 48 Z" fill="#fdfaf3"/>
     <!-- bottom arm, in the fold's shade -->
     <path d="M160 128 L186 128 L46 208 L72 208 Z" fill="#e9dfc6"/>
-
     <!-- the cursor: a diamond folded along its centre -->
     <path d="M206 104 L230 128 L182 128 Z" fill="#2ea8ee"/>
     <path d="M182 128 L230 128 L206 152 Z" fill="#0e7fc0"/>
