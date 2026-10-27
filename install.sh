@@ -18,9 +18,12 @@ die() { printf 'cl2metal: error: %s\n' "$*" >&2; exit 1; }
 os=$(uname -s)
 machine=$(uname -m)
 case "$os:$machine" in
-    Linux:x86_64)               target="x86_64-unknown-linux-gnu" ;;
-    Linux:aarch64|Linux:arm64)  target="aarch64-unknown-linux-gnu" ;;
-    Darwin:x86_64)              target="x86_64-apple-darwin" ;;
+    Linux:x86_64)  target="x86_64-unknown-linux-gnu" ;;
+    # Only x86_64 Linux is released. Other machines (arm, riscv, ...) must
+    # stop here with a clear reason, not fail on a download that cannot run.
+    Linux:*) die "no Linux release for $machine yet — only x86_64 is built. Build from source:
+  git clone https://github.com/$repo && cd cl2metal && cargo build --release" ;;
+    Darwin:x86_64)               target="x86_64-apple-darwin" ;;
     Darwin:arm64|Darwin:aarch64) target="aarch64-apple-darwin" ;;
     *) die "no release binary for $os $machine — build from source:
   git clone https://github.com/$repo && cd cl2metal && cargo build --release" ;;
