@@ -98,7 +98,9 @@ agents use SSH profiles (MCP)* and *Approve agent commands before they run
 ## Platforms
 
 Linux is the primary target; Windows and macOS build and run from the same
-tree. CI runs fmt, clippy and the test suite on all three. Platform notes:
+tree. CI runs fmt, clippy and the test suite on all three. Windows and Linux
+have been used on real hardware; macOS is CI-verified (Apple-silicon runners)
+but has not been driven hands-on yet. Platform notes:
 [features.md#platforms](features.md#platforms).
 
 ## License
