@@ -349,8 +349,6 @@ src/
   term/            terminal core, PTY, SSH, SFTP, input encoding, shell integration
   config.rs        config.toml, SSH profiles, known_hosts, keyring secrets
   theme.rs         built-in themes and colour overrides
-docs/
-  RESEARCH.md      why the SSH workspace and the editor are built the way they are
 ```
 
 The wallpaper is decoded on a worker thread and cached in the state directory
