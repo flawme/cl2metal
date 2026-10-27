@@ -530,7 +530,7 @@ fn sysinfo_reads_the_machine() {
 }
 
 #[test]
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn cpu_model_strips_the_colon_after_the_tab() {
     use super::sysinfo::cpu_model;
     // Real /proc/cpuinfo separates the key and the value with a tab.

@@ -293,7 +293,7 @@ mod unix {
     /// The peer's (pid, uid), or `None` when the platform cannot tell
     /// us. Linux answers via `SO_PEERCRED`; other unixes get refused
     /// rather than serve traffic we cannot attribute.
-    fn peer_creds(stream: &tokio::net::UnixStream) -> Option<(u32, u32)> {
+    pub(super) fn peer_creds(stream: &tokio::net::UnixStream) -> Option<(u32, u32)> {
         #[cfg(target_os = "linux")]
         {
             use std::os::fd::AsRawFd as _;

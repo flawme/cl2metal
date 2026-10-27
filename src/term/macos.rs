@@ -34,7 +34,7 @@ pub fn running_children(pid: u32) -> Vec<String> {
         if state.contains('Z') {
             continue;
         }
-        let name = std::path::Path::new(command)
+        let name = std::path::Path::new(&command)
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()

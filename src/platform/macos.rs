@@ -1,7 +1,7 @@
 //! macOS desktop integration: notifications, a user-local app bundle, and Menlo.
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub(crate) fn default_font() -> String {
     "Menlo".to_owned()
