@@ -18,6 +18,8 @@ commands, platform notes and source layout.
 - OSC 8 hyperlinks (Ctrl+click), OSC 52 clipboard (writes always, reads opt-in)
 - Kitty keyboard protocol for modern TUI apps
 - Shell integration (OSC 133): prompt marks, exit status, jump-to-prompt
+- New tabs and splits start in the focused shell's directory, not the
+  directory cl2metal was launched from
 
 ## SSH
 
@@ -58,7 +60,8 @@ A modal editor built into the application:
   occurrences, `Ctrl+Alt+Up/Down` add a cursor, block selection with `Ctrl+V`
 - Syntax highlighting (syntect, on a worker thread), line numbers, relative
   numbers, current-line highlight, bracket matching, whitespace markers
-- File tree, buffer tabs, split panes, find/replace, go-to-line, command palette
+- File tree that follows the focused shell's `cd` (pin it with `editor_root`),
+  buffer tabs, split panes, find/replace, go-to-line, command palette
 - **Editable keybindings** with conflict detection and reset to defaults
 - Local and remote files in the same editor, with the location in the status line
 - Unsaved-change protection, external-change detection, large-file handling
@@ -143,6 +146,18 @@ between two panes to resize them, and `Ctrl+Shift+W` closes the focused pane
   straight through.
 - Selecting text publishes it to the X11 primary selection, and (with
   `copy_on_select`, on by default) to the clipboard as well.
+
+## Startup tips and updates
+
+- Each launch shows one tip for four seconds at the bottom of the window. A
+  fresh install always gets the drag-an-image tip first; later launches pick
+  from the pool at random.
+- Once per launch cl2metal asks GitHub for the latest release. When it is newer
+  than the running build, a prompt offers to update. Update opens your terminal
+  emulator (`$TERMINAL`, gnome-terminal, konsole, xfce4-terminal, kitty,
+  alacritty, wezterm, foot, xterm, x-terminal-emulator; Terminal.app on macOS;
+  cmd on Windows) and runs `install.sh` / `install.ps1`. Later or Esc defers it
+  for that launch, and being offline is silent.
 
 ## Configuration
 
@@ -342,6 +357,8 @@ src/
   app/ssh_mode.rs  the SSH workspace sidebar: hosts, groups, favourites
   app/sftp_panel.rs the SFTP browser view
   app/editor_view.rs hosting the editor: theme colours, key routing, remote saves
+  app/tips.rs      the startup tip pool and the per-launch pick
+  app/update.rs    the release check, version compare and terminal hand-off
   editor/          the modal editor (buffer, modes, motions, operators, view, …)
   agent/           the MCP broker: server, protocol, consent guard, :mcp-on registration
   ui.rs            egui chrome: tab bar widgets, palette, settings, prompts

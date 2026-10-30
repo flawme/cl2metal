@@ -17,16 +17,18 @@ glyph grid.*
 
 - **Terminal** — GPU-instanced rendering, scrollback with search, OSC 8
   hyperlinks, OSC 52 clipboard, the Kitty keyboard protocol, OSC 133 shell
-  integration (prompt marks, exit-status dot, jump-to-prompt), panes and tabs,
-  background image, visual bell.
+  integration (prompt marks, exit-status dot, jump-to-prompt), panes and tabs
+  that open in the current directory, background image, visual bell.
 - **SSH** — password / public-key / agent / MFA auth, jump hosts, local,
   remote and SOCKS5 forwards, `~/.ssh/config` import, reconnect in place,
   secrets in the OS keyring, an SFTP browser, and remote files in the editor.
 - **Editor** — Vim-style modal editing with multiple cursors, splits, a file
-  tree, syntax highlighting, find/replace and editable keybindings; local and
-  remote files live in the same editor.
+  tree that follows the shell's `cd`, syntax highlighting, find/replace and
+  editable keybindings; local and remote files live in the same editor.
 - **Agents** — the built-in MCP server hands your SSH profiles to coding
   agents, one Allow click at a time (below).
+- **Startup** — one short tip per launch (the drag-an-image hint on a fresh
+  install), and a release check that offers to update in your terminal.
 
 The full detail — every keybinding, config key, internal command, platform
 note and the source layout — is in [features.md](features.md).
@@ -58,6 +60,9 @@ your `PATH` yet — then ask, yes or no, whether to add the app to your
 application menu / Start Menu / `~/Applications`. The Linux binary is built
 against a glibc 2.35 baseline, and the Windows one links its C runtime
 statically, so one download runs on older desktops without extra packages.
+
+cl2metal checks for a newer release when it starts; when one exists, the
+prompt's Update button opens your terminal and runs the same installer.
 
 From source instead:
 
