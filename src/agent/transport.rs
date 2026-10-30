@@ -482,9 +482,9 @@ mod tests {
         assert!(!list.is_empty());
         #[cfg(unix)]
         {
-            let uid = our_uid();
             #[cfg(target_os = "linux")]
             {
+                let uid = our_uid();
                 let conventional = format!("/run/user/{uid}/cl2metal-agent.sock");
                 assert!(
                     list.iter().any(|e| e.display() == conventional),
