@@ -150,6 +150,25 @@ impl App {
             return;
         }
 
+        // The update prompt: Esc defers it for this launch.
+        if matches!(self.overlay, Overlay::Update { .. }) {
+            let esc = events.iter().any(|ev| {
+                matches!(
+                    ev,
+                    egui::Event::Key {
+                        key: egui::Key::Escape,
+                        pressed: true,
+                        ..
+                    }
+                )
+            });
+            if esc {
+                self.update_available = None;
+                self.overlay = Overlay::None;
+            }
+            return;
+        }
+
         // 2. Command palette.
         if matches!(self.overlay, Overlay::Palette { .. }) {
             let (query, mut selected) = match &self.overlay {

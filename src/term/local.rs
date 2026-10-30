@@ -38,12 +38,15 @@ fn find_on_path(exe: &str) -> Option<String> {
 
 /// Spawn a local shell and return `(client_tx, msg_rx, shell_pid)` for the
 /// UI side. The pid is the shell's own, so its working directory can be
-/// followed.
+/// followed. `cwd` is where the shell starts: a new tab passes the focused
+/// pane's directory, so it opens where the user is, not where cl2metal was
+/// launched.
 pub fn spawn(
     shell: &str,
     cols: u16,
     rows: u16,
     exec: Option<&str>,
+    cwd: Option<&std::path::Path>,
     wake: Waker,
 ) -> anyhow::Result<(
     flume::Sender<ClientMsg>,
@@ -98,8 +101,16 @@ pub fn spawn(
             cmd.arg(cmdline);
         }
     }
-    if let Ok(cwd) = std::env::current_dir() {
-        cmd.cwd(cwd);
+    // A new tab starts where the focused shell is, not where cl2metal was
+    // launched; the caller passes that directory in. Without one (the first
+    // tab), the launch directory is the only sensible answer.
+    match cwd {
+        Some(dir) => cmd.cwd(dir),
+        None => {
+            if let Ok(dir) = std::env::current_dir() {
+                cmd.cwd(dir);
+            }
+        }
     }
 
     log::info!("spawning shell: {cmd:?}");
@@ -471,9 +482,15 @@ mod tests {
         #[cfg(windows)]
         let (shell, script) = ("cmd.exe", "set /p line= & call echo got:%line%");
 
-        let (client_tx, msg_rx, _pid) =
-            spawn(shell, 80, 24, Some(script), std::sync::Arc::new(|| {}))
-                .expect("spawn a session");
+        let (client_tx, msg_rx, _pid) = spawn(
+            shell,
+            80,
+            24,
+            Some(script),
+            None,
+            std::sync::Arc::new(|| {}),
+        )
+        .expect("spawn a session");
         // Give the shell a moment to start, then type into it: this covers
         // the reader, the writer, and the exit reporter in one pass.
         std::thread::sleep(std::time::Duration::from_millis(500));
@@ -521,6 +538,50 @@ mod tests {
         assert!(exit_reason.is_some(), "the exit was reported");
     }
 
+    /// A new tab starts where the focused shell is: the spawn's `cwd` is the
+    /// directory the shell actually runs in, not the app's launch directory.
+    #[test]
+    #[cfg(unix)]
+    fn a_session_starts_in_the_directory_it_was_given() {
+        let dir = std::env::temp_dir().join(format!("cl2metal-cwd-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create the fixture directory");
+
+        let (_client_tx, msg_rx, _pid) = spawn(
+            "",
+            80,
+            24,
+            Some("pwd"),
+            Some(&dir),
+            std::sync::Arc::new(|| {}),
+        )
+        .expect("spawn a session");
+
+        let mut text = String::new();
+        let mut exited = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline && !exited {
+            match msg_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(SessionMsg::Data(bytes)) => text.push_str(&String::from_utf8_lossy(&bytes)),
+                Ok(SessionMsg::Exited(_)) => exited = true,
+                Ok(_) => {}
+                Err(_) => {}
+            }
+        }
+        // Drain anything queued alongside the exit event.
+        while let Ok(msg) = msg_rx.recv_timeout(std::time::Duration::from_millis(300)) {
+            if let SessionMsg::Data(bytes) = msg {
+                text.push_str(&String::from_utf8_lossy(&bytes));
+            }
+        }
+        let expected = std::fs::canonicalize(&dir).unwrap_or(dir.clone());
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            text.contains(&expected.display().to_string()),
+            "pwd printed the spawn directory: {text:?}"
+        );
+    }
+
     #[test]
     fn non_existent_pid_has_no_directory() {
         assert!(shell_cwd(u32::MAX).is_none());
@@ -536,8 +597,8 @@ mod tests {
         use std::time::{Duration, Instant};
 
         // The default shell is what a pane gets; cmd.exe passes this too.
-        let (client_tx, msg_rx, _pid) =
-            spawn("", 120, 30, None, std::sync::Arc::new(|| {})).expect("spawn the default shell");
+        let (client_tx, msg_rx, _pid) = spawn("", 120, 30, None, None, std::sync::Arc::new(|| {}))
+            .expect("spawn the default shell");
 
         let mut text = String::new();
         let drain = |msg_rx: &flume::Receiver<SessionMsg>,

@@ -89,6 +89,56 @@ fn on_path(name: &str) -> bool {
         .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(name).is_file()))
 }
 
+/// Open the user's terminal emulator on `command`.
+///
+/// The emulators disagree on how to take a command, so each gets its own
+/// argument shape. `$TERMINAL` wins when it is set; otherwise the usual
+/// suspects are tried in order of how likely they are to be installed.
+pub(crate) fn open_terminal(command: &str) -> Result<(), String> {
+    let mut candidates: Vec<(String, Vec<String>)> = Vec::new();
+    if let Ok(term) = std::env::var("TERMINAL") {
+        let term = term.trim().to_owned();
+        if !term.is_empty() {
+            // gnome-terminal dropped `-e`; everything else still takes it.
+            let args = if term.contains("gnome-terminal") {
+                vec!["--", "sh", "-c", command]
+            } else {
+                vec!["-e", "sh", "-c", command]
+            };
+            candidates.push((term, args.into_iter().map(str::to_owned).collect()));
+        }
+    }
+    for (exe, args) in [
+        ("gnome-terminal", vec!["--", "sh", "-c", command]),
+        ("konsole", vec!["-e", "sh", "-c", command]),
+        ("xfce4-terminal", vec!["-x", "sh", "-c", command]),
+        ("kitty", vec!["sh", "-c", command]),
+        ("alacritty", vec!["-e", "sh", "-c", command]),
+        ("wezterm", vec!["start", "--", "sh", "-c", command]),
+        ("foot", vec!["sh", "-c", command]),
+        ("xterm", vec!["-e", "sh", "-c", command]),
+        ("x-terminal-emulator", vec!["-e", "sh", "-c", command]),
+    ] {
+        candidates.push((
+            exe.to_owned(),
+            args.into_iter().map(str::to_owned).collect(),
+        ));
+    }
+    for (exe, args) in candidates {
+        if !on_path(&exe) {
+            continue;
+        }
+        match std::process::Command::new(&exe).args(&args).spawn() {
+            Ok(_) => {
+                log::info!("update terminal: {exe} {args:?}");
+                return Ok(());
+            }
+            Err(e) => log::warn!("terminal {exe} failed: {e}"),
+        }
+    }
+    Err("no terminal emulator found".to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -27,6 +27,29 @@ fn applescript_escape(text: &str) -> String {
         .replace('\r', "\\r")
 }
 
+/// Open Terminal.app on `command`.
+///
+/// Terminal.app runs a script file, so the command goes into a temporary
+/// script instead of being quoted through osascript.
+pub(crate) fn open_terminal(command: &str) -> Result<(), String> {
+    let path = std::env::temp_dir().join(format!("cl2metal-update-{}.sh", std::process::id()));
+    std::fs::write(&path, format!("#!/bin/sh\n{command}\n"))
+        .map_err(|e| format!("writing {}: {e}", path.display()))?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| format!("chmod {}: {e}", path.display()))?;
+    let status = std::process::Command::new("open")
+        .args(["-a", "Terminal"])
+        .arg(&path)
+        .status()
+        .map_err(|e| format!("open -a Terminal: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Terminal.app refused the script".to_owned())
+    }
+}
+
 pub(crate) fn install_desktop() -> io::Result<()> {
     let app_dir = dirs::home_dir()
         .ok_or_else(|| io::Error::other("cannot locate the home directory"))?

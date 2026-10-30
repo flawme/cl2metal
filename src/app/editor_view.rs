@@ -169,6 +169,17 @@ impl App {
             return;
         }
         self.last_root_follow = self.now;
+        self.follow_terminal_root_now();
+    }
+
+    /// Point the tree at the focused shell's directory right now.
+    ///
+    /// The throttled `follow_terminal_root` calls this on its poll; opening
+    /// the editor calls it directly so the first frame is already correct.
+    fn follow_terminal_root_now(&mut self) {
+        if self.config.editor_root.is_some() {
+            return;
+        }
         let Some(pane) = self.tabs.get(self.active) else {
             return;
         };
@@ -241,6 +252,11 @@ impl App {
             View::Editor => "editor".to_owned(),
         };
         self.persist_config();
+        // The tree should already be rooted where the shell is on the first
+        // frame the editor appears, not one poll interval later.
+        if view == View::Editor {
+            self.follow_terminal_root_now();
+        }
         // The editor keeps its buffers and unsaved work across the switch.
         if view == View::Editor && self.editor.buffers.iter().all(|b| b.path.is_none()) {
             // A first visit with nothing open: show the tree, not a blank page.

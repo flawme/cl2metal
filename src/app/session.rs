@@ -46,12 +46,14 @@ impl App {
         cols: usize,
         rows: usize,
         exec: Option<&str>,
+        cwd: Option<std::path::PathBuf>,
     ) -> Result<Pane, String> {
         let (client_tx, msg_rx, shell_pid) = local::spawn(
             &self.config.shell,
             cols as u16,
             rows as u16,
             exec,
+            cwd.as_deref(),
             self.waker.clone(),
         )
         .map_err(|e| format!("Failed to spawn shell: {e:#}"))?;
@@ -143,15 +145,36 @@ impl App {
         }
     }
 
+    /// The focused local shell's directory, when it can be read.
+    ///
+    /// A new tab or split starts here, so `cd` in one pane is how you say
+    /// where the next one should open. SSH panes have no local directory,
+    /// and a dead shell's pid is stale, so both fall back to the launch
+    /// directory.
+    pub(crate) fn active_local_cwd(&self) -> Option<std::path::PathBuf> {
+        let pane = self.tabs.get(self.active)?;
+        let pid = pane.shell_pid?;
+        if pane.dead.is_some() {
+            return None;
+        }
+        let cwd = crate::term::local::shell_cwd(pid)?;
+        (cwd.is_absolute() && cwd.exists()).then_some(cwd)
+    }
+
     pub(crate) fn spawn_local(&mut self) {
         let (cols, rows) = self.grid_size();
         let exec = self.exec.take();
+        // A new tab opens where the focused shell is, not at the launch
+        // directory. The first tab has no focused shell yet, so it falls
+        // back to the launch directory.
+        let cwd = self.active_local_cwd();
         log::info!(
-            "spawn_local: shell={:?} exec={:?} grid={cols}x{rows}",
+            "spawn_local: shell={:?} exec={:?} cwd={:?} grid={cols}x{rows}",
             self.config.shell,
-            exec
+            exec,
+            cwd
         );
-        match self.new_local_pane(cols, rows, exec.as_deref()) {
+        match self.new_local_pane(cols, rows, exec.as_deref(), cwd) {
             Ok(pane) => {
                 let title = shell_label(&self.config.shell);
                 self.tabs.push(Self::single_pane_tab(pane, title));
@@ -277,8 +300,10 @@ impl App {
         let (cols, rows) = self.grid_size();
 
         // Build the new session first, so a failure leaves the pane intact.
+        // The dead shell's pid is stale, so the replacement starts at the
+        // launch directory.
         let built = match kind {
-            TabKind::Local => self.new_local_pane(cols, rows, None),
+            TabKind::Local => self.new_local_pane(cols, rows, None, None),
             TabKind::Ssh => {
                 // Prefer the pane's own profile (works for ad-hoc sessions),
                 // falling back to a config lookup by name.
@@ -328,11 +353,13 @@ impl App {
         let kind = tab.panes[target].kind;
         let profile = tab.panes[target].ssh_profile.clone();
         let (cols, rows) = self.grid_size();
+        // The split starts where the pane being split is.
+        let cwd = self.active_local_cwd();
         let built = match kind {
-            TabKind::Local => self.new_local_pane(cols, rows, None),
+            TabKind::Local => self.new_local_pane(cols, rows, None, cwd),
             TabKind::Ssh => match profile {
                 Some(profile) => self.new_ssh_pane(&profile, cols, rows),
-                None => self.new_local_pane(cols, rows, None),
+                None => self.new_local_pane(cols, rows, None, cwd),
             },
         };
         let pane = match built {

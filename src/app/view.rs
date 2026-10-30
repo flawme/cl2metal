@@ -503,6 +503,61 @@ impl App {
         ctx.request_repaint();
     }
 
+    /// The startup tip: a quiet banner at the bottom of the window.
+    ///
+    /// It lives for four seconds and fades in and out, so it teaches without
+    /// stealing the first keystrokes.
+    pub(crate) fn draw_tip(&mut self, ctx: &egui::Context) {
+        const TIP_SECS: f64 = 4.0;
+        let Some((msg, at)) = self.tip.clone() else {
+            return;
+        };
+        let age = self.now - at;
+        if age > TIP_SECS {
+            self.tip = None;
+            return;
+        }
+        let fade =
+            ((age / 0.25).min(1.0) * ((TIP_SECS - age) / 0.5).min(1.0)).clamp(0.0, 1.0) as f32;
+        let full = ctx.content_rect();
+        let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("cl2metal-tip"));
+        let painter = ctx.layer_painter(layer);
+        let color = ui::with_alpha(color32(self.theme.ui.text), fade);
+        let galley = painter.layout_no_wrap(
+            msg,
+            egui::FontId::new(12.5, egui::FontFamily::Proportional),
+            color,
+        );
+        let pad = egui::vec2(14.0, 8.0);
+        let rect = egui::Rect::from_min_size(
+            egui::pos2(
+                full.center().x - galley.size().x * 0.5 - pad.x,
+                full.max.y - galley.size().y - 18.0 - pad.y,
+            ),
+            galley.size() + pad * 2.0,
+        );
+        painter.rect_filled(
+            rect,
+            8.0,
+            ui::with_alpha(
+                color32(self.theme.ui.panel_bg),
+                0.92 * fade * self.theme.ui_alpha,
+            ),
+        );
+        painter.rect_stroke(
+            rect,
+            8.0,
+            egui::Stroke::new(
+                1.0,
+                ui::with_alpha(color32(self.theme.ui.accent), 0.55 * fade),
+            ),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(rect.min + pad, galley, color);
+        // Keep the fade animating while it is on screen.
+        ctx.request_repaint();
+    }
+
     /// The countdown an image hovering over the window runs before it
     /// becomes the background.
     pub(crate) fn draw_bg_drop(&mut self, ctx: &egui::Context) {
@@ -1119,6 +1174,7 @@ impl App {
         let mut profile_save: Option<(crate::config::SshProfile, Option<String>)> = None;
         let mut profile_delete: Option<String> = None;
         let mut keys_save: Option<std::collections::BTreeMap<String, String>> = None;
+        let mut update: Option<String> = None;
         match &mut self.overlay {
             Overlay::None => {}
             Overlay::Palette { query, selected } => {
@@ -1244,6 +1300,15 @@ impl App {
                     keys_save = Some(bindings.clone());
                 }
             }
+            Overlay::Update { version } => {
+                let (c, go) = ui::show_update(ui, &theme, version);
+                if c {
+                    close = true;
+                }
+                if go {
+                    update = Some(version.clone());
+                }
+            }
         }
         if let Some((tab, title)) = rename_submit {
             if let Some(t) = self.tabs.get_mut(tab) {
@@ -1361,7 +1426,28 @@ impl App {
             let ctx = ui.ctx().clone();
             self.apply_config(draft, font, &ctx);
         }
+        if let Some(version) = update {
+            self.update_available = None;
+            match update::run_in_terminal() {
+                Ok(()) => {
+                    self.toast = Some((
+                        format!(
+                            "updating to {version} in your terminal — restart cl2metal when it finishes"
+                        ),
+                        self.now,
+                    ));
+                }
+                Err(e) => {
+                    self.toast = Some((format!("could not open a terminal: {e}"), self.now));
+                }
+            }
+            close = true;
+        }
         if close {
+            // Deferring the update prompt must not reopen it next frame.
+            if matches!(self.overlay, Overlay::Update { .. }) {
+                self.update_available = None;
+            }
             self.overlay = Overlay::None;
         }
     }

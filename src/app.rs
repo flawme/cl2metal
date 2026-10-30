@@ -462,6 +462,14 @@ pub struct App {
     /// When the editor's tree last followed the terminal's directory.
     last_root_follow: f64,
     toast: Option<(String, f64)>,
+    /// The startup tip and when it was first shown.
+    tip: Option<(String, f64)>,
+    /// The tip waiting for the startup overlay to clear.
+    tip_pending: Option<String>,
+    /// A newer release, when the startup check found one.
+    update_available: Option<String>,
+    /// The update check's result channel.
+    update_rx: Option<flume::Receiver<Option<String>>>,
     now: f64,
     /// Wall-clock time of the first frame; drives the startup animation.
     entry_start: Option<f64>,
@@ -657,6 +665,8 @@ mod session;
 mod sftp_panel;
 mod ssh_mode;
 mod sysinfo;
+mod tips;
+mod update;
 mod view;
 
 #[cfg(test)]
@@ -667,6 +677,15 @@ mod ssh_tests;
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, cli: Cli) -> Self {
         let config = Config::load();
+        // A fresh install has no config yet: that launch gets the tip that
+        // teaches the wallpaper drag. Every launch after it gets a random
+        // one, so the hints rotate.
+        let first_run = !Config::path().exists();
+        if first_run {
+            // Write the defaults now, so the next launch is not "first run"
+            // again and the tips start rotating.
+            let _ = config.save();
+        }
         let mut theme = theme::builtin(&config.theme);
         theme::apply_overrides(&mut theme, &config.colors);
         ui::apply_theme(&cc.egui_ctx, &theme);
@@ -702,6 +721,13 @@ impl App {
         let gpu = format!("{} ({:?})", adapter.name, adapter.backend);
         log::info!("gpu: {gpu}");
         let waker = make_waker(&cc.egui_ctx);
+        // One update check per launch, off the UI thread. Offline is not an
+        // error: the request simply fails and no prompt appears.
+        let update_rx = Some(update::check(waker.clone()));
+        let tip_seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
         // The agent access broker: local socket, human consent, audit
         // trail. A bind failure only turns the feature off, never the
         // app.
@@ -761,6 +787,10 @@ impl App {
             last_title: String::new(),
             last_root_follow: 0.0,
             toast: None,
+            tip: None,
+            tip_pending: Some(tips::pick(first_run, tip_seed).to_owned()),
+            update_available: None,
+            update_rx,
             now: 0.0,
             entry_start: None,
             entry_t: 0.0,
@@ -917,6 +947,22 @@ impl eframe::App for App {
         self.poll_sftp();
         // Agent broker events: consent questions, session prompts.
         self.poll_agent();
+        // The update check's answer, when it lands.
+        if let Some(rx) = &self.update_rx
+            && let Ok(result) = rx.try_recv()
+        {
+            self.update_rx = None;
+            if let Some(version) = result {
+                self.update_available = Some(version);
+            }
+        }
+        // A newer release waits for a free screen: the prompt must not
+        // interrupt a modal the user already has open.
+        if let Some(version) = self.update_available.clone()
+            && matches!(self.overlay, Overlay::None)
+        {
+            self.overlay = Overlay::Update { version };
+        }
         // Easter eggs that are running (party mode, the rain).
         self.update_eggs(ctx);
 
@@ -947,6 +993,14 @@ impl eframe::App for App {
         if self.entry_t < 1.0 {
             ctx.request_repaint();
         }
+        // The startup tip waits for the overlay to clear, then shows for a
+        // few seconds.
+        if self.entry_t >= 1.0
+            && let Some(text) = self.tip_pending.take()
+        {
+            log::info!("tip: {text}");
+            self.tip = Some((text, self.now));
+        }
 
         // Tab enter/leave animations need frames while they run.
         if self.tabs.iter().any(|t| {
@@ -976,6 +1030,9 @@ impl eframe::App for App {
             wake = Some(wake.map_or(0.05, |w: f64| w.min(0.05)));
         }
         if self.toast.is_some() {
+            wake = Some(wake.map_or(0.1, |w: f64| w.min(0.1)));
+        }
+        if self.tip.is_some() {
             wake = Some(wake.map_or(0.1, |w: f64| w.min(0.1)));
         }
         if let Some(dt) = wake {
@@ -1210,6 +1267,8 @@ impl eframe::App for App {
 
         // --- status toast: the last thing drawn, so nothing can hide it ---
         self.draw_toast(&ctx);
+        // The startup tip sits at the bottom, clear of the toast.
+        self.draw_tip(&ctx);
         // The background-drop countdown rides with it.
         self.draw_bg_drop(&ctx);
 

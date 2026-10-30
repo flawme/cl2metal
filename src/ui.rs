@@ -77,6 +77,10 @@ pub enum Overlay {
         recording: Option<String>,
         error: Option<String>,
     },
+    /// A newer release is out: offer to install it.
+    Update {
+        version: String,
+    },
 }
 
 /// What a close confirmation is about to close.
@@ -1443,6 +1447,43 @@ pub fn show_close_confirm(
         });
     });
     (cancel, close)
+}
+
+/// Offer to install a newer release.
+///
+/// Returns `(later, update)`: `later` closes the prompt for this launch,
+/// `update` hands the installer to the user's terminal.
+pub fn show_update(ui: &mut egui::Ui, theme: &Theme, version: &str) -> (bool, bool) {
+    let mut later = false;
+    let mut update = false;
+    modal_frame(ui, theme, "Update available", |ui| {
+        ui.label(
+            egui::RichText::new(format!(
+                "cl2metal {version} is out; this build is {}.",
+                env!("CARGO_PKG_VERSION")
+            ))
+            .size(12.5)
+            .color(color32(theme.ui.text)),
+        );
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new("Update now? Your terminal opens and runs the installer.")
+                .size(11.5)
+                .color(color32(theme.ui.text_dim)),
+        );
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            // No Enter shortcut here: the prompt appears on its own, and an
+            // Enter already in flight from the terminal must not install.
+            if primary_button(ui, theme, "Update now", 140.0).clicked() {
+                update = true;
+            }
+            if secondary_button(ui, theme, "Later", 88.0).clicked() {
+                later = true;
+            }
+        });
+    });
+    (later, update)
 }
 
 // ---------------------------------------------------------------------------

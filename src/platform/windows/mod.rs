@@ -89,6 +89,28 @@ pub(crate) fn install_desktop() -> io::Result<()> {
     Ok(())
 }
 
+/// Open a console window on `command`.
+///
+/// The command goes into a temporary `.cmd` file: `cmd.exe` has its own
+/// quoting rules, and a PowerShell one-liner full of quotes does not survive
+/// being passed through `start`. `cmd /k` keeps the window open after the
+/// installer finishes, so the result stays readable.
+pub(crate) fn open_terminal(command: &str) -> Result<(), String> {
+    let path = std::env::temp_dir().join(format!("cl2metal-update-{}.cmd", std::process::id()));
+    std::fs::write(&path, format!("@echo off\r\n{command}\r\n"))
+        .map_err(|e| format!("writing {}: {e}", path.display()))?;
+    let status = std::process::Command::new("cmd")
+        .args(["/C", "start", "", "cmd", "/k"])
+        .arg(&path)
+        .status()
+        .map_err(|e| format!("cmd start: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("could not open a terminal".to_owned())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
