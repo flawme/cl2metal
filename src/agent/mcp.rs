@@ -539,9 +539,8 @@ mod tests {
         let endpoint =
             transport::Endpoint::Unix(std::path::PathBuf::from("/nonexistent/cl2metal-mcp-test"));
         #[cfg(windows)]
-        let endpoint = transport::Endpoint::Windows(
-            r"\\.\pipe\cl2metal-mcp-test-does-not-exist".to_owned(),
-        );
+        let endpoint =
+            transport::Endpoint::Windows(r"\\.\pipe\cl2metal-mcp-test-does-not-exist".to_owned());
         BrokerClient::pinned(endpoint)
     }
 
@@ -617,7 +616,10 @@ mod tests {
                 .unwrap()
                 .clone()
         };
-        assert_eq!(by_name("list_profiles")["annotations"]["readOnlyHint"], true);
+        assert_eq!(
+            by_name("list_profiles")["annotations"]["readOnlyHint"],
+            true
+        );
         assert_eq!(by_name("sessions")["annotations"]["readOnlyHint"], true);
         assert_eq!(by_name("audit_tail")["annotations"]["readOnlyHint"], true);
         assert_eq!(by_name("upload")["annotations"]["destructiveHint"], true);

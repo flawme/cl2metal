@@ -319,14 +319,14 @@ mod broker {
             // Identity before anything else: same user only. On Windows the
             // named pipe's default DACL is the same-user guarantee, so
             // `peer.uid` is None and the check is skipped.
-            if let Some(uid) = peer.uid {
-                if uid != transport::our_uid() {
-                    audit_line(
-                        &audit,
-                        &format!("rejected uid {uid} (pid {}): not this user", peer.pid),
-                    );
-                    continue;
-                }
+            if let Some(uid) = peer.uid
+                && uid != transport::our_uid()
+            {
+                audit_line(
+                    &audit,
+                    &format!("rejected uid {uid} (pid {}): not this user", peer.pid),
+                );
+                continue;
             }
             let requester = transport::requester_name(peer.pid);
             audit_line(&audit, &format!("{requester} connected"));
@@ -424,12 +424,18 @@ mod broker {
                     session,
                     local_path,
                     remote_path,
-                } => self.transfer(id, session, local_path, remote_path, true).await,
+                } => {
+                    self.transfer(id, session, local_path, remote_path, true)
+                        .await
+                }
                 Op::Download {
                     session,
                     remote_path,
                     local_path,
-                } => self.transfer(id, session, local_path, remote_path, false).await,
+                } => {
+                    self.transfer(id, session, local_path, remote_path, false)
+                        .await
+                }
                 Op::Sessions => {
                     if let Err(reason) = self.shared.gate() {
                         return self.denied(id, "sessions", reason);
@@ -455,9 +461,7 @@ mod broker {
                     if let Err(reason) = self.shared.gate() {
                         return self.denied(id, "audit_tail", reason);
                     }
-                    let count = lines
-                        .unwrap_or(50)
-                        .clamp(1, protocol::MAX_AUDIT_LINES);
+                    let count = lines.unwrap_or(50).clamp(1, protocol::MAX_AUDIT_LINES);
                     Response {
                         id,
                         ok: true,
@@ -613,9 +617,7 @@ mod broker {
             }
             // Read-only mode is stricter than consent: the human cannot
             // approve a write, because the setting says writes are off.
-            if self.shared.read_only()
-                && guard::classify(&command) != guard::Verdict::AutoAllowed
-            {
+            if self.shared.read_only() && guard::classify(&command) != guard::Verdict::AutoAllowed {
                 return self.denied(id, "exec", "read-only mode: command needs write access");
             }
             let timeout_ms = protocol::clamp_timeout(timeout_ms, self.shared.default_timeout());
@@ -777,7 +779,8 @@ mod broker {
             let reply = if upload {
                 live.session.upload(local_path.clone(), remote_path.clone())
             } else {
-                live.session.download(remote_path.clone(), local_path.clone())
+                live.session
+                    .download(remote_path.clone(), local_path.clone())
             };
             let Some(reply) = reply else {
                 return Response::error(id, "session closed");
@@ -1137,7 +1140,8 @@ mod tests {
         // let the shared runtime drive both ends: tokio refuses to start a
         // runtime inside another one, and bind_socket already blocks on the
         // shared runtime.
-        let listener = transport::bind(&transport::Endpoint::Unix(path.clone())).expect("bind socket");
+        let listener =
+            transport::bind(&transport::Endpoint::Unix(path.clone())).expect("bind socket");
         crate::term::runtime().block_on(async {
             let client = tokio::net::UnixStream::connect(&path)
                 .await
@@ -1160,7 +1164,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cl2metal-bind-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("sock");
-        let listener = transport::bind(&transport::Endpoint::Unix(path.clone())).expect("bind off the runtime");
+        let listener = transport::bind(&transport::Endpoint::Unix(path.clone()))
+            .expect("bind off the runtime");
         assert!(path.exists(), "the bound socket file exists");
         drop(listener);
         let _ = std::fs::remove_file(&path);

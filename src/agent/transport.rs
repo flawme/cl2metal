@@ -159,8 +159,8 @@ pub fn bind(endpoint: &Endpoint) -> io::Result<Listener> {
         #[cfg(unix)]
         Endpoint::Unix(path) => {
             let _ = std::fs::remove_file(path);
-            let listener = crate::term::runtime()
-                .block_on(async { tokio::net::UnixListener::bind(path) })?;
+            let listener =
+                crate::term::runtime().block_on(async { tokio::net::UnixListener::bind(path) })?;
             use std::os::unix::fs::PermissionsExt as _;
             let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
             Ok(Listener::Unix(listener))
@@ -183,7 +183,9 @@ pub fn bind(endpoint: &Endpoint) -> io::Result<Listener> {
 pub fn connect_blocking(endpoint: &Endpoint) -> io::Result<BlockingStream> {
     match endpoint {
         #[cfg(unix)]
-        Endpoint::Unix(path) => std::os::unix::net::UnixStream::connect(path).map(BlockingStream::Unix),
+        Endpoint::Unix(path) => {
+            std::os::unix::net::UnixStream::connect(path).map(BlockingStream::Unix)
+        }
         #[cfg(windows)]
         Endpoint::Windows(name) => std::fs::OpenOptions::new()
             .read(true)
