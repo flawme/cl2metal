@@ -88,6 +88,21 @@ impl Audit {
     }
 }
 
+/// The last `lines` lines of the audit log, oldest first. A missing or
+/// unreadable file reads as empty; the audit is best-effort by design.
+pub fn tail(lines: usize) -> Vec<String> {
+    tail_from(&audit_path(), lines)
+}
+
+fn tail_from(path: &std::path::Path, lines: usize) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let all: Vec<&str> = text.lines().collect();
+    let start = all.len().saturating_sub(lines);
+    all[start..].iter().map(|line| (*line).to_owned()).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,5 +119,17 @@ mod tests {
         // 2024-02-29: day 19782 since the epoch.
         let (year, month, day) = civil_from_days(19_782);
         assert_eq!((year, month, day), (2024, 2, 29));
+    }
+
+    #[test]
+    fn tail_returns_the_last_lines() {
+        let dir = std::env::temp_dir().join(format!("cl2metal-audit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("audit.log");
+        std::fs::write(&path, "a\nb\nc\n").unwrap();
+        assert_eq!(tail_from(&path, 2), vec!["b".to_owned(), "c".to_owned()]);
+        assert_eq!(tail_from(&path, 99).len(), 3);
+        assert!(tail_from(&dir.join("missing.log"), 5).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

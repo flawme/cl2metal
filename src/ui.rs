@@ -1185,6 +1185,12 @@ pub fn show_settings(
                     &mut draft.agent_api.confirm_commands,
                     "Approve agent commands before they run (read-only ones excepted)",
                 );
+                check_row(
+                    ui,
+                    theme,
+                    &mut draft.agent_api.read_only,
+                    "Read-only mode: refuse anything outside the safe command set",
+                );
 
                 ui.add_space(8.0);
                 section_header(ui, theme, "KNOWN HOSTS");
@@ -2129,6 +2135,57 @@ pub fn show_consent(
                         "Read-only commands run without asking; everything else needs your \
                          approval. \"Allow all future\" stops asking for the rest of this \
                          session. Unanswered requests close in {} s.",
+                        remaining as u32
+                    ))
+                    .weak()
+                    .size(11.5)
+                    .color(color32(theme.ui.text_dim)),
+                );
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if primary_button(ui, theme, "Allow", 88.0).clicked() {
+                        *decision = Some(ConsentAnswer::Allow);
+                    }
+                    if secondary_button(ui, theme, "Don't allow", 120.0).clicked() {
+                        *decision = Some(ConsentAnswer::Deny);
+                    }
+                    if secondary_button(ui, theme, "Allow all future", 140.0).clicked() {
+                        *decision = Some(ConsentAnswer::AllowAll);
+                    }
+                });
+            });
+        }
+        ConsentKind::File {
+            action,
+            local_path,
+            remote_path,
+            user_at_host,
+        } => {
+            modal_frame(ui, theme, "Agent file transfer approval", |ui| {
+                ui.label(format!(
+                    "{} on this machine wants to {} a file over {}:",
+                    request.requester, action, user_at_host
+                ));
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("Local")
+                        .weak()
+                        .color(color32(theme.ui.text_dim)),
+                );
+                ui.monospace(local_path.as_str());
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("Remote")
+                        .weak()
+                        .color(color32(theme.ui.text_dim)),
+                );
+                ui.monospace(remote_path.as_str());
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Transfers use the session's SFTP channel and are capped at 64 MiB. \
+                         \"Allow all future\" stops asking for the rest of this session. \
+                         Unanswered requests close in {} s.",
                         remaining as u32
                     ))
                     .weak()

@@ -8,10 +8,9 @@
 
 pub mod audit;
 pub mod guard;
-#[cfg(unix)]
 pub mod mcp;
 pub mod protocol;
-#[cfg(unix)]
 pub mod register;
 pub mod server;
 pub mod session;
+pub mod transport;

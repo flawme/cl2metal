@@ -17,6 +17,10 @@ pub const MAX_LINE_BYTES: usize = 64 * 1024;
 pub const MAX_COMMAND_BYTES: usize = 8 * 1024;
 /// Cap on the stdout/stderr text returned by one exec.
 pub const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+/// Hard cap on one file transfer (upload or download).
+pub const MAX_TRANSFER_BYTES: u64 = 64 * 1024 * 1024;
+/// Hard cap on audit lines returned by one request.
+pub const MAX_AUDIT_LINES: usize = 500;
 pub const MIN_TIMEOUT_MS: u64 = 100;
 pub const MAX_TIMEOUT_MS: u64 = 120_000;
 pub const DEFAULT_TIMEOUT_MS: u64 = 15_000;
@@ -45,6 +49,24 @@ pub enum Op {
         command: String,
         timeout_ms: Option<u64>,
     },
+    /// Copy a local file to the remote host over SFTP.
+    Upload {
+        session: String,
+        local_path: String,
+        remote_path: String,
+    },
+    /// Copy a remote file to the local machine over SFTP.
+    Download {
+        session: String,
+        remote_path: String,
+        local_path: String,
+    },
+    /// List the sessions open on this connection.
+    Sessions,
+    /// Return the last N lines of the local agent audit log.
+    AuditTail {
+        lines: Option<usize>,
+    },
     Close {
         session: String,
     },
@@ -57,6 +79,15 @@ pub struct ProfileInfo {
     pub host: String,
     pub user: String,
     pub port: u16,
+}
+
+/// One open session, as reported by the `sessions` op. No credentials, no
+/// command history — just what the agent already knows.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct SessionInfo {
+    pub id: String,
+    pub user_at_host: String,
+    pub auto_allowed: bool,
 }
 
 /// The response to one [`Request`]. Only the fields the op fills are
@@ -75,6 +106,14 @@ pub struct Response {
     pub user: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profiles: Option<Vec<ProfileInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sessions: Option<Vec<SessionInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audit: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,6 +146,22 @@ pub fn validate_command(command: &str) -> Result<(), &'static str> {
     }
     if command.contains('\0') {
         return Err("command contains NUL");
+    }
+    Ok(())
+}
+
+/// Reject empty, oversized or NUL-containing paths before they reach a
+/// session. The remote SFTP server interprets the path; this only guards the
+/// protocol boundary.
+pub fn validate_path(path: &str) -> Result<(), &'static str> {
+    if path.is_empty() {
+        return Err("empty path");
+    }
+    if path.len() > MAX_COMMAND_BYTES {
+        return Err("path too long");
+    }
+    if path.contains('\0') {
+        return Err("path contains NUL");
     }
     Ok(())
 }
@@ -182,6 +237,39 @@ mod tests {
                 session: "s_0123456789ab".to_owned()
             }
         );
+
+        let sessions: Request = serde_json::from_str(r#"{"id":6,"op":"sessions"}"#).unwrap();
+        assert_eq!(sessions.op, Op::Sessions);
+
+        let audit: Request =
+            serde_json::from_str(r#"{"id":7,"op":"audit_tail","lines":25}"#).unwrap();
+        assert_eq!(audit.op, Op::AuditTail { lines: Some(25) });
+
+        let upload: Request = serde_json::from_str(
+            r#"{"id":8,"op":"upload","session":"s_0123456789ab","local_path":"/tmp/a","remote_path":"/root/a"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            upload.op,
+            Op::Upload {
+                session: "s_0123456789ab".to_owned(),
+                local_path: "/tmp/a".to_owned(),
+                remote_path: "/root/a".to_owned(),
+            }
+        );
+
+        let download: Request = serde_json::from_str(
+            r#"{"id":9,"op":"download","session":"s_0123456789ab","remote_path":"/root/a","local_path":"/tmp/a"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            download.op,
+            Op::Download {
+                session: "s_0123456789ab".to_owned(),
+                remote_path: "/root/a".to_owned(),
+                local_path: "/tmp/a".to_owned(),
+            }
+        );
     }
 
     #[test]
@@ -201,6 +289,14 @@ mod tests {
         assert_eq!(validate_command(""), Err("empty command"));
         assert!(validate_command(&"x".repeat(MAX_COMMAND_BYTES + 1)).is_err());
         assert_eq!(validate_command("ls\0rm"), Err("command contains NUL"));
+    }
+
+    #[test]
+    fn path_validation_rejects_the_dangerous_and_useless() {
+        assert!(validate_path("/root/file").is_ok());
+        assert_eq!(validate_path(""), Err("empty path"));
+        assert!(validate_path(&"x".repeat(MAX_COMMAND_BYTES + 1)).is_err());
+        assert_eq!(validate_path("a\0b"), Err("path contains NUL"));
     }
 
     #[test]

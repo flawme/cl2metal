@@ -20,13 +20,13 @@ pub mod windows;
 /// The session layer knows nothing about egui; the app hands it a closure.
 pub type Waker = std::sync::Arc<dyn Fn() + Send + Sync>;
 
-/// The runtime the unix terminal sessions run on.
+/// The shared async runtime.
 ///
-/// One shared, fixed-size pool instead of a thread per pane: splitting a
-/// pane adds tasks, not threads, so the thread count stops growing with
-/// the number of panes. Windows keeps a thread per loop (there is no
-/// `AsyncFd` there), so it never builds this pool.
-#[cfg(unix)]
+/// Unix terminal sessions run on one shared, fixed-size pool instead of a
+/// thread per pane: splitting a pane adds tasks, not threads, so the thread
+/// count stops growing with the number of panes. Windows keeps a thread per
+/// terminal loop (there is no `AsyncFd` there), but the agent broker still
+/// uses this pool for its accept loop on every platform.
 pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
     RUNTIME.get_or_init(|| {

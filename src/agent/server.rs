@@ -64,6 +64,16 @@ pub enum ConsentKind {
         /// `user@host`, for "this runs as ...".
         user_at_host: String,
     },
+    /// One file transfer on a session that already exists. The modal
+    /// shows both paths and the direction.
+    File {
+        /// "upload" or "download".
+        action: String,
+        local_path: String,
+        remote_path: String,
+        /// `user@host`, for "this runs as ...".
+        user_at_host: String,
+    },
 }
 
 /// The human's decision on a consent question.
@@ -84,6 +94,7 @@ pub enum ConsentAnswer {
 pub(crate) struct Shared {
     enabled: AtomicBool,
     confirm_commands: AtomicBool,
+    read_only: AtomicBool,
     default_timeout_ms: AtomicU64,
     keepalive: AtomicU64,
     profiles: Mutex<Vec<SshProfile>>,
@@ -91,11 +102,11 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    #[cfg(unix)]
     fn from_config(config: &Config) -> Self {
         Self {
             enabled: AtomicBool::new(config.agent_api.enabled),
             confirm_commands: AtomicBool::new(config.agent_api.confirm_commands),
+            read_only: AtomicBool::new(config.agent_api.read_only),
             default_timeout_ms: AtomicU64::new(config.agent_api.default_timeout_ms),
             keepalive: AtomicU64::new(config.ssh_keepalive),
             profiles: Mutex::new(config.profiles.clone()),
@@ -110,6 +121,8 @@ impl Shared {
             .store(config.agent_api.enabled, Ordering::Relaxed);
         self.confirm_commands
             .store(config.agent_api.confirm_commands, Ordering::Relaxed);
+        self.read_only
+            .store(config.agent_api.read_only, Ordering::Relaxed);
         self.default_timeout_ms
             .store(config.agent_api.default_timeout_ms, Ordering::Relaxed);
         self.keepalive
@@ -120,7 +133,6 @@ impl Shared {
 
     /// The settings gate. Ping and close pass without it; everything
     /// else is agent access and needs the switch on.
-    #[cfg(unix)]
     fn gate(&self) -> Result<(), &'static str> {
         if !self.enabled.load(Ordering::Relaxed) {
             return Err("agent access is turned off in cl2metal settings");
@@ -130,12 +142,16 @@ impl Shared {
 
     /// Whether exec requests are screened: read-only commands run,
     /// everything else needs the human.
-    #[cfg(unix)]
     fn confirm_commands(&self) -> bool {
         self.confirm_commands.load(Ordering::Relaxed)
     }
 
-    #[cfg(unix)]
+    /// Whether only the curated read-only command set may run. Stricter
+    /// than consent: the human cannot approve a write in this mode.
+    fn read_only(&self) -> bool {
+        self.read_only.load(Ordering::Relaxed)
+    }
+
     fn find_profile(&self, name: &str) -> Option<SshProfile> {
         self.profiles
             .lock()
@@ -146,7 +162,6 @@ impl Shared {
     }
 
     /// Whether an agent may open this profile at all.
-    #[cfg(unix)]
     fn allowed(&self, name: &str) -> bool {
         match &*self.allow_profiles.lock().unwrap() {
             None => true,
@@ -155,7 +170,6 @@ impl Shared {
     }
 
     /// What agents are told exists: only profiles they may use.
-    #[cfg(unix)]
     fn advertised(&self) -> Vec<super::protocol::ProfileInfo> {
         self.profiles
             .lock()
@@ -171,12 +185,10 @@ impl Shared {
             .collect()
     }
 
-    #[cfg(unix)]
     fn default_timeout(&self) -> u64 {
         self.default_timeout_ms.load(Ordering::Relaxed)
     }
 
-    #[cfg(unix)]
     fn keepalive_secs(&self) -> u64 {
         self.keepalive.load(Ordering::Relaxed)
     }
@@ -214,11 +226,9 @@ impl Broker {
 // Unix socket server
 // ---------------------------------------------------------------------------
 
-#[cfg(unix)]
-mod unix {
+mod broker {
     use std::collections::HashMap;
     use std::io;
-    use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -230,6 +240,7 @@ mod unix {
     use crate::agent::guard;
     use crate::agent::protocol::{self, Op, Request, Response};
     use crate::agent::session::{self, AgentSession, SessionEvent};
+    use crate::agent::transport;
     use crate::config::{AuthMethod, Config, SshProfile, secrets};
     use crate::term::Waker;
     use crate::term::ssh::SshParams;
@@ -253,151 +264,29 @@ mod unix {
         }
     }
 
-    /// Where to try binding, in order: the user's runtime dir (0700 by
-    /// construction), then /tmp keyed by uid. `SO_PEERCRED` enforces the
-    /// same-user rule either way; the 0600 mode keeps other accounts
-    /// from even knocking.
-    pub(super) fn socket_paths(runtime_dir: Option<&std::ffi::OsStr>, uid: u32) -> Vec<PathBuf> {
-        let mut paths = Vec::new();
-        if let Some(dir) = runtime_dir.filter(|d| !d.is_empty()) {
-            paths.push(PathBuf::from(dir).join("cl2metal-agent.sock"));
-        }
-        paths.push(std::env::temp_dir().join(format!("cl2metal-agent-{uid}.sock")));
-        paths
-    }
-
-    fn socket_path_candidates() -> Vec<PathBuf> {
-        socket_paths(std::env::var_os("XDG_RUNTIME_DIR").as_deref(), our_uid())
-    }
-
-    /// The socket a client (the `cl2metal mcp` child) should use: the
-    /// first bound candidate, so a /tmp fallback is found too.
-    pub(crate) fn client_socket_path() -> Option<PathBuf> {
-        socket_path_candidates()
-            .into_iter()
-            .find(|path| path.exists())
-    }
-
-    /// Bind one socket path. A tokio listener registers with the
-    /// current reactor, and callers reach this from the GUI thread where
-    /// no reactor runs — so the shared runtime is borrowed for the bind,
-    /// never for serving.
-    pub(super) fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListener> {
-        crate::term::runtime().block_on(async { tokio::net::UnixListener::bind(path) })
-    }
-
-    fn our_uid() -> u32 {
-        unsafe { libc::getuid() }
-    }
-
-    /// The peer's (pid, uid), or `None` when the platform cannot tell
-    /// us. Linux answers via `SO_PEERCRED`; other unixes get refused
-    /// rather than serve traffic we cannot attribute.
-    pub(super) fn peer_creds(stream: &tokio::net::UnixStream) -> Option<(u32, u32)> {
-        #[cfg(target_os = "linux")]
-        {
-            use std::os::fd::AsRawFd as _;
-            let mut cred = libc::ucred {
-                pid: 0,
-                uid: 0,
-                gid: 0,
-            };
-            let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-            let rc = unsafe {
-                libc::getsockopt(
-                    stream.as_raw_fd(),
-                    libc::SOL_SOCKET,
-                    libc::SO_PEERCRED,
-                    &mut cred as *mut libc::ucred as *mut libc::c_void,
-                    &mut len,
-                )
-            };
-            (rc == 0).then_some((cred.pid as u32, cred.uid))
-        }
-        #[cfg(target_os = "macos")]
-        {
-            use std::os::fd::AsRawFd as _;
-            let fd = stream.as_raw_fd();
-            let mut pid: libc::pid_t = 0;
-            let mut pid_len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
-            // macOS exposes the effective peer pid with LOCAL_PEEREPID, and `getpeereid`
-            // supplies its effective uid for the same-user check.
-            let pid_rc = unsafe {
-                libc::getsockopt(
-                    fd,
-                    libc::SOL_LOCAL,
-                    libc::LOCAL_PEEREPID,
-                    &mut pid as *mut libc::pid_t as *mut libc::c_void,
-                    &mut pid_len,
-                )
-            };
-            let (mut uid, mut gid) = (0, 0);
-            let uid_rc = unsafe { libc::getpeereid(fd, &mut uid, &mut gid) };
-            (pid_rc == 0 && uid_rc == 0 && pid > 0).then_some((pid as u32, uid))
-        }
-        #[cfg(not(target_os = "linux"))]
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = stream;
-            None
-        }
-    }
-
-    /// Who is asking: the process name behind the pid, for the consent
-    /// modal and the audit log. A name we cannot read degrades to the
-    /// bare pid.
-    pub(super) fn requester_name(pid: u32) -> String {
-        #[cfg(target_os = "linux")]
-        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm"))
-            .ok()
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty());
-        #[cfg(target_os = "macos")]
-        let comm = std::process::Command::new("ps")
-            .args(["-o", "comm=", "-p", &pid.to_string()])
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-            .filter(|name| !name.is_empty());
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        let comm = None;
-        match comm {
-            Some(comm) => format!("{comm} (pid {pid})"),
-            None => format!("pid {pid}"),
-        }
-    }
-
-    /// Start the broker: bind the socket and serve until the process
-    /// ends. Returns `None` when nothing could be bound — the app runs
-    /// on without agent access; that is never a startup failure.
+    /// Start the broker: bind the first usable endpoint and serve until the
+    /// process ends. Returns `None` when nothing could be bound — the app
+    /// runs on without agent access; that is never a startup failure.
     pub fn start(config: &Config, wake: Waker) -> Option<super::Broker> {
         let shared = Arc::new(Shared::from_config(config));
         let audit = Arc::new(Mutex::new(Audit::open()));
         let (events_tx, events_rx) = flume::unbounded::<AgentEvent>();
         let mut bound = None;
-        for path in socket_path_candidates() {
-            // A socket file left by a crashed run is stale by definition:
-            // this process is the only one that can own the name.
-            let _ = std::fs::remove_file(&path);
-            match bind_socket(&path) {
+        for endpoint in transport::endpoints() {
+            match transport::bind(&endpoint) {
                 Ok(listener) => {
-                    bound = Some((listener, path));
+                    bound = Some((listener, endpoint));
                     break;
                 }
-                Err(e) => log::warn!("agent socket: cannot bind {}: {e}", path.display()),
+                Err(e) => log::warn!("agent socket: cannot bind {}: {e}", endpoint.display()),
             }
         }
-        let Some((listener, path)) = bound else {
-            log::warn!("agent socket: no bindable path; agent access is off for this run");
+        let Some((listener, endpoint)) = bound else {
+            log::warn!("agent socket: no bindable endpoint; agent access is off for this run");
             return None;
         };
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-        }
-        log::info!("agent socket listening at {}", path.display());
-        audit_line(&audit, &format!("listening at {}", path.display()));
+        log::info!("agent socket listening at {}", endpoint.display());
+        audit_line(&audit, &format!("listening at {}", endpoint.display()));
         crate::term::runtime().spawn(accept_loop(
             listener,
             shared.clone(),
@@ -412,14 +301,14 @@ mod unix {
     }
 
     async fn accept_loop(
-        listener: tokio::net::UnixListener,
+        listener: transport::Listener,
         shared: Arc<Shared>,
         audit: Arc<Mutex<Audit>>,
         events: flume::Sender<AgentEvent>,
         wake: Waker,
     ) {
         loop {
-            let (stream, _) = match listener.accept().await {
+            let (stream, peer) = match listener.accept().await {
                 Ok(pair) => pair,
                 Err(e) => {
                     log::warn!("agent socket: accept failed: {e}");
@@ -427,19 +316,19 @@ mod unix {
                     continue;
                 }
             };
-            // Identity before anything else: same user only.
-            let Some((pid, uid)) = peer_creds(&stream) else {
-                audit_line(&audit, "dropped a connection we could not identify");
-                continue;
-            };
-            if uid != our_uid() {
-                audit_line(
-                    &audit,
-                    &format!("rejected uid {uid} (pid {pid}): not this user"),
-                );
-                continue;
+            // Identity before anything else: same user only. On Windows the
+            // named pipe's default DACL is the same-user guarantee, so
+            // `peer.uid` is None and the check is skipped.
+            if let Some(uid) = peer.uid {
+                if uid != transport::our_uid() {
+                    audit_line(
+                        &audit,
+                        &format!("rejected uid {uid} (pid {}): not this user", peer.pid),
+                    );
+                    continue;
+                }
             }
-            let requester = requester_name(pid);
+            let requester = transport::requester_name(peer.pid);
             audit_line(&audit, &format!("{requester} connected"));
             let conn = Conn {
                 requester,
@@ -531,6 +420,51 @@ mod unix {
                     command,
                     timeout_ms,
                 } => self.exec(id, session, command, timeout_ms).await,
+                Op::Upload {
+                    session,
+                    local_path,
+                    remote_path,
+                } => self.transfer(id, session, local_path, remote_path, true).await,
+                Op::Download {
+                    session,
+                    remote_path,
+                    local_path,
+                } => self.transfer(id, session, local_path, remote_path, false).await,
+                Op::Sessions => {
+                    if let Err(reason) = self.shared.gate() {
+                        return self.denied(id, "sessions", reason);
+                    }
+                    let mut sessions: Vec<protocol::SessionInfo> = self
+                        .sessions
+                        .iter()
+                        .map(|(id, live)| protocol::SessionInfo {
+                            id: id.clone(),
+                            user_at_host: live.user_at_host.clone(),
+                            auto_allowed: live.auto_allowed,
+                        })
+                        .collect();
+                    sessions.sort_by(|a, b| a.id.cmp(&b.id));
+                    Response {
+                        id,
+                        ok: true,
+                        sessions: Some(sessions),
+                        ..Response::default()
+                    }
+                }
+                Op::AuditTail { lines } => {
+                    if let Err(reason) = self.shared.gate() {
+                        return self.denied(id, "audit_tail", reason);
+                    }
+                    let count = lines
+                        .unwrap_or(50)
+                        .clamp(1, protocol::MAX_AUDIT_LINES);
+                    Response {
+                        id,
+                        ok: true,
+                        audit: Some(crate::agent::audit::tail(count)),
+                        ..Response::default()
+                    }
+                }
                 Op::Close { session } => self.close(id, session),
             }
         }
@@ -677,6 +611,13 @@ mod unix {
             if let Err(reason) = protocol::validate_command(&command) {
                 return self.denied(id, "exec", reason);
             }
+            // Read-only mode is stricter than consent: the human cannot
+            // approve a write, because the setting says writes are off.
+            if self.shared.read_only()
+                && guard::classify(&command) != guard::Verdict::AutoAllowed
+            {
+                return self.denied(id, "exec", "read-only mode: command needs write access");
+            }
             let timeout_ms = protocol::clamp_timeout(timeout_ms, self.shared.default_timeout());
             let Some(live) = self.sessions.get(&session) else {
                 return Response::error(id, "no such session");
@@ -764,6 +705,115 @@ mod unix {
             }
         }
 
+        /// Upload or download one file over the session's SFTP subsystem.
+        /// File transfers are always consent-worthy: they read or write a
+        /// file, and the modal shows both paths.
+        async fn transfer(
+            &mut self,
+            id: u64,
+            session: String,
+            local_path: String,
+            remote_path: String,
+            upload: bool,
+        ) -> Response {
+            let op = if upload { "upload" } else { "download" };
+            if let Err(reason) = self.shared.gate() {
+                return self.denied(id, op, reason);
+            }
+            if !protocol::valid_session_id(&session) {
+                return Response::error(id, "bad session id");
+            }
+            if let Err(reason) = protocol::validate_path(&local_path) {
+                return self.denied(id, op, reason);
+            }
+            if let Err(reason) = protocol::validate_path(&remote_path) {
+                return self.denied(id, op, reason);
+            }
+            if upload && self.shared.read_only() {
+                return self.denied(id, op, "read-only mode: uploads are disabled");
+            }
+            let Some(live) = self.sessions.get(&session) else {
+                return Response::error(id, "no such session");
+            };
+            let user_at_host = live.user_at_host.clone();
+            let auto_allowed = live.auto_allowed;
+
+            if !auto_allowed {
+                match self
+                    .ask(ConsentKind::File {
+                        action: op.to_owned(),
+                        local_path: local_path.clone(),
+                        remote_path: remote_path.clone(),
+                        user_at_host: user_at_host.clone(),
+                    })
+                    .await
+                {
+                    Err(()) => {
+                        self.note(&format!(
+                            "{op} {session} by {}: consent timed out",
+                            self.requester
+                        ));
+                        return Response::error(id, "consent timed out");
+                    }
+                    Ok(ConsentAnswer::Deny) => {
+                        return self.denied(id, op, "consent denied");
+                    }
+                    Ok(ConsentAnswer::Allow) => {}
+                    Ok(ConsentAnswer::AllowAll) => {
+                        self.note(&format!(
+                            "session {session}: {} approved all future commands",
+                            self.requester
+                        ));
+                        if let Some(live) = self.sessions.get_mut(&session) {
+                            live.auto_allowed = true;
+                        }
+                    }
+                }
+            }
+
+            let Some(live) = self.sessions.get(&session) else {
+                return Response::error(id, "session closed");
+            };
+            let reply = if upload {
+                live.session.upload(local_path.clone(), remote_path.clone())
+            } else {
+                live.session.download(remote_path.clone(), local_path.clone())
+            };
+            let Some(reply) = reply else {
+                return Response::error(id, "session closed");
+            };
+            // A transfer can take longer than an exec; give it the protocol's
+            // maximum timeout plus the same slack.
+            let wait = Duration::from_millis(protocol::MAX_TIMEOUT_MS + EXEC_SLACK_MS);
+            match tokio::time::timeout(wait, reply).await {
+                Ok(Ok(Ok(outcome))) => {
+                    self.note(&format!(
+                        "{op} {session} by {}: {} bytes sha256 {} ({} -> {})",
+                        self.requester, outcome.bytes, outcome.sha256, local_path, remote_path
+                    ));
+                    Response {
+                        id,
+                        ok: true,
+                        bytes: Some(outcome.bytes),
+                        sha256: Some(outcome.sha256),
+                        ..Response::default()
+                    }
+                }
+                Ok(Ok(Err(reason))) => {
+                    self.note(&format!(
+                        "{op} {session} by {} failed: {reason}",
+                        self.requester
+                    ));
+                    Response::error(id, reason)
+                }
+                Ok(Err(_)) => Response::error(id, "session closed"),
+                Err(_) => {
+                    self.note(&format!("{op} {session} by {} timed out", self.requester));
+                    Response::error(id, "timed out")
+                }
+            }
+        }
+
         fn close(&mut self, id: u64, session: String) -> Response {
             if !protocol::valid_session_id(&session) {
                 return Response::error(id, "bad session id");
@@ -784,8 +834,8 @@ mod unix {
     }
 
     /// Serve one connection: one request per line, answered in order.
-    async fn handle_conn(stream: tokio::net::UnixStream, mut conn: Conn) {
-        let (read_half, mut write_half) = stream.into_split();
+    async fn handle_conn(stream: transport::Stream, mut conn: Conn) {
+        let (read_half, mut write_half) = tokio::io::split(stream);
         let mut reader = tokio::io::BufReader::new(read_half);
         let mut line = Vec::new();
         loop {
@@ -908,26 +958,15 @@ mod unix {
     }
 }
 
-#[cfg(unix)]
-pub(crate) use unix::client_socket_path;
-#[cfg(unix)]
-pub use unix::start;
-
-#[cfg(not(unix))]
-/// Agent access needs a unix socket. On other platforms the broker
-/// simply does not exist, and the app runs without the feature.
-pub fn start(_config: &Config, _wake: crate::term::Waker) -> Option<Broker> {
-    log::info!("agent access needs a unix socket; not available on this platform");
-    None
-}
+pub use broker::start;
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::unix::*;
+    use super::broker::*;
     use super::*;
     use crate::agent::protocol;
+    use crate::agent::transport;
     use crate::config::{AgentApiConfig, AuthMethod};
-    use std::path::PathBuf;
 
     fn profile(name: &str) -> SshProfile {
         SshProfile {
@@ -944,27 +983,6 @@ mod tests {
             agent_forwarding: false,
             group: None,
         }
-    }
-
-    #[test]
-    fn socket_paths_try_the_runtime_dir_then_tmp() {
-        let paths = socket_paths(Some(std::ffi::OsStr::new("/run/user/1000")), 1000);
-        assert_eq!(
-            paths[0],
-            PathBuf::from("/run/user/1000/cl2metal-agent.sock")
-        );
-        assert!(
-            paths[1]
-                .to_string_lossy()
-                .contains("cl2metal-agent-1000.sock")
-        );
-        assert_eq!(paths.len(), 2);
-
-        let fallback = socket_paths(None, 1000);
-        assert_eq!(fallback.len(), 1);
-
-        // An empty runtime dir is no runtime dir.
-        assert_eq!(socket_paths(Some(std::ffi::OsStr::new("")), 7).len(), 1);
     }
 
     #[test]
@@ -1101,11 +1119,11 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn requester_names_come_from_proc_and_degrade_to_the_pid() {
-        let own = requester_name(std::process::id());
+        let own = transport::requester_name(std::process::id());
         assert!(own.contains(&format!("pid {}", std::process::id())));
 
         // A pid nothing can own reads as the bare number.
-        assert_eq!(requester_name(2_147_483_647), "pid 2147483647");
+        assert_eq!(transport::requester_name(2_147_483_647), "pid 2147483647");
     }
 
     #[cfg(target_os = "macos")]
@@ -1119,15 +1137,14 @@ mod tests {
         // let the shared runtime drive both ends: tokio refuses to start a
         // runtime inside another one, and bind_socket already blocks on the
         // shared runtime.
-        let listener = bind_socket(&path).expect("bind socket");
+        let listener = transport::bind(&transport::Endpoint::Unix(path.clone())).expect("bind socket");
         crate::term::runtime().block_on(async {
             let client = tokio::net::UnixStream::connect(&path)
                 .await
                 .expect("connect client");
-            let (server, _) = listener.accept().await.expect("accept client");
-            let (pid, uid) = peer_creds(&server).expect("read peer credentials");
-            assert_eq!(pid, std::process::id());
-            assert_eq!(uid, unsafe { libc::getuid() });
+            let (_server, peer) = listener.accept().await.expect("accept client");
+            assert_eq!(peer.pid, std::process::id());
+            assert_eq!(peer.uid, Some(unsafe { libc::getuid() }));
             drop(client);
         });
         let _ = std::fs::remove_file(path);
@@ -1143,7 +1160,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cl2metal-bind-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("sock");
-        let listener = bind_socket(&path).expect("bind off the runtime");
+        let listener = transport::bind(&transport::Endpoint::Unix(path.clone())).expect("bind off the runtime");
         assert!(path.exists(), "the bound socket file exists");
         drop(listener);
         let _ = std::fs::remove_file(&path);

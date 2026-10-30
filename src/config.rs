@@ -343,6 +343,9 @@ pub struct AgentApiConfig {
     pub confirm_commands: bool,
     /// When set, only these profile names may be used by agents.
     pub allow_profiles: Option<Vec<String>>,
+    /// Refuse anything outside the curated read-only command set. Stricter
+    /// than `confirm_commands`: the human cannot approve a write.
+    pub read_only: bool,
     /// Default exec timeout in milliseconds when a request does not
     /// carry its own (`agent::protocol::DEFAULT_TIMEOUT_MS` is the
     /// single source this default reads).
@@ -357,6 +360,7 @@ impl Default for AgentApiConfig {
             // able to run anything beyond read-only commands.
             confirm_commands: true,
             allow_profiles: None,
+            read_only: false,
             default_timeout_ms: crate::agent::protocol::DEFAULT_TIMEOUT_MS,
         }
     }
@@ -822,6 +826,7 @@ plain.example.com ssh-ed25519 AAAAC3Nza
                 enabled: false,
                 confirm_commands: false,
                 allow_profiles: Some(vec!["vps".to_owned()]),
+                read_only: true,
                 default_timeout_ms: 5000,
             },
             ..Config::default()

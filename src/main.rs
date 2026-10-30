@@ -1,5 +1,11 @@
 //! cl2metal — a sleek, minimal, secure terminal + SSH client.
 
+// Release builds on Windows are GUI-subsystem binaries: launching from
+// Explorer must not flash a console window. Debug builds keep the console
+// so `cargo run` still shows logs. The `mcp` subcommand talks over stdio
+// pipes, which work the same in either subsystem.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod agent;
 mod app;
 mod bench;
@@ -76,17 +82,12 @@ fn main() -> eframe::Result<()> {
     // Parsed here, before Cli::parse(), because a bare positional would
     // otherwise land in cli.host.
     if args.first().is_some_and(|a| a == "mcp") {
-        #[cfg(unix)]
-        {
-            if args.get(1).map(String::as_str) == Some("skill") {
-                print!("{}", agent::mcp::SKILL_MD);
-            } else if let Err(e) = agent::mcp::run() {
-                eprintln!("cl2metal: mcp: {e}");
-                std::process::exit(1);
-            }
+        if args.get(1).map(String::as_str) == Some("skill") {
+            print!("{}", agent::mcp::SKILL_MD);
+        } else if let Err(e) = agent::mcp::run() {
+            eprintln!("cl2metal: mcp: {e}");
+            std::process::exit(1);
         }
-        #[cfg(not(unix))]
-        eprintln!("cl2metal: mcp needs a unix socket; not available here");
         return Ok(());
     }
 

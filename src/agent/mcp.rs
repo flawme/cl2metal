@@ -10,13 +10,11 @@
 //! broker's; it exits when stdin closes.
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
 use super::protocol::{Op, Request, Response};
-use super::server;
+use super::transport::{self, BlockingStream};
 
 /// The only protocol version this server speaks. A client asking for
 /// another version gets this one back, which is the spec's negotiation:
@@ -53,6 +51,14 @@ answer once for the whole session. \"consent denied\" or \"consent timed \
 out\" means stop and say so; do not retry.
 - exec returns exit_code, stdout and stderr (each capped at 1 MiB); the \
 timeout defaults to 15 s.
+- upload {session, local_path, remote_path} and download {session, \
+remote_path, local_path} move one file over SFTP (64 MiB cap). Both return \
+bytes and sha256, and both need the human's approval unless they already \
+chose \"allow all\".
+- sessions lists the sessions this process has open; audit_tail returns the \
+last N audit lines (default 50, max 500).
+- If the user enabled read-only mode, only the curated read-only commands \
+run; writes are refused outright.
 - The user can read everything you ran in their agent audit log.";
 
 /// The built-in agent skill, printed by `cl2metal mcp skill`. Ready to
@@ -87,6 +93,10 @@ app is not running — and stop. Do not retry in a loop.
 | `list_profiles` | the SSH profiles the app allows agents to use |
 | `connect {profile}` | opens a session; a consent popup appears on the user's screen and they must click Allow |
 | `exec {session, command, timeout_ms?}` | runs one command; read-only ones run freely, everything else needs the user's approval; returns `exit_code`, `stdout`, `stderr` |
+| `upload {session, local_path, remote_path}` | copies a local file to the host over SFTP; returns `bytes` and `sha256` |
+| `download {session, remote_path, local_path}` | copies a host file to this machine over SFTP; returns `bytes` and `sha256` |
+| `sessions` | the sessions this MCP process has open |
+| `audit_tail {lines?}` | the last N lines of the local agent audit log |
 | `close {session}` | closes the session |
 
 ## How to behave
@@ -228,22 +238,26 @@ fn initialize_result(params: &Value) -> Value {
     })
 }
 
-/// The four tools, one per broker op.
+/// The tools, one per broker op. Annotations follow the MCP 2025-06-18
+/// tool metadata: read-only tools are marked, and the ones that write or
+/// reach the network carry the matching hints.
 fn tools() -> Value {
     json!([
         {
             "name": "list_profiles",
             "description": "List the SSH profiles cl2metal lets agents use. Doubles as the availability check: an error means the app is not running or agent access is off in its settings.",
-            "inputSchema": { "type": "object", "properties": {} }
+            "inputSchema": { "type": "object", "properties": {} },
+            "annotations": { "readOnlyHint": true }
         },
         {
             "name": "connect",
-            "description": "Open an SSH session to a saved profile. A consent popup appears in the cl2metal window; the human must click Allow. Returns the session id to pass to exec.",
+            "description": "Open an SSH session to a saved profile. A consent popup appears in the cl2metal window; the human must click Allow. Returns the session id to pass to exec, upload and download.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "profile": { "type": "string" } },
                 "required": ["profile"]
-            }
+            },
+            "annotations": { "openWorldHint": true }
         },
         {
             "name": "exec",
@@ -256,7 +270,51 @@ fn tools() -> Value {
                     "timeout_ms": { "type": "integer", "description": "Optional; clamped to 100..120000, default 15000." }
                 },
                 "required": ["session", "command"]
-            }
+            },
+            "annotations": { "destructiveHint": true, "openWorldHint": true }
+        },
+        {
+            "name": "upload",
+            "description": "Copy a local file to the remote host over SFTP. Returns the byte count and sha256 of the transferred bytes. The human approves the transfer; the file is capped at 64 MiB.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": { "type": "string" },
+                    "local_path": { "type": "string", "description": "Path on this machine." },
+                    "remote_path": { "type": "string", "description": "Path on the SSH host." }
+                },
+                "required": ["session", "local_path", "remote_path"]
+            },
+            "annotations": { "destructiveHint": true, "idempotentHint": true }
+        },
+        {
+            "name": "download",
+            "description": "Copy a remote file to this machine over SFTP. Returns the byte count and sha256 of the transferred bytes. The human approves the transfer; the file is capped at 64 MiB.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": { "type": "string" },
+                    "remote_path": { "type": "string", "description": "Path on the SSH host." },
+                    "local_path": { "type": "string", "description": "Path on this machine." }
+                },
+                "required": ["session", "remote_path", "local_path"]
+            },
+            "annotations": { "destructiveHint": true, "idempotentHint": true }
+        },
+        {
+            "name": "sessions",
+            "description": "List the sessions this MCP process has open: id, user@host, and whether commands are auto-approved.",
+            "inputSchema": { "type": "object", "properties": {} },
+            "annotations": { "readOnlyHint": true }
+        },
+        {
+            "name": "audit_tail",
+            "description": "Return the last N lines of the local agent audit log (default 50, max 500).",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "lines": { "type": "integer", "description": "1..500, default 50." } }
+            },
+            "annotations": { "readOnlyHint": true }
         },
         {
             "name": "close",
@@ -265,7 +323,8 @@ fn tools() -> Value {
                 "type": "object",
                 "properties": { "session": { "type": "string" } },
                 "required": ["session"]
-            }
+            },
+            "annotations": { "destructiveHint": true, "idempotentHint": true }
         }
     ])
 }
@@ -310,6 +369,45 @@ fn call_tool(broker: &mut BrokerClient, params: &Value) -> ToolCall {
                 timeout_ms: arguments.get("timeout_ms").and_then(Value::as_u64),
             }
         }
+        "upload" => {
+            let Some(session) = arguments.get("session").and_then(Value::as_str) else {
+                return ToolCall::Protocol("upload needs a session".into());
+            };
+            let Some(local_path) = arguments.get("local_path").and_then(Value::as_str) else {
+                return ToolCall::Protocol("upload needs a local_path".into());
+            };
+            let Some(remote_path) = arguments.get("remote_path").and_then(Value::as_str) else {
+                return ToolCall::Protocol("upload needs a remote_path".into());
+            };
+            Op::Upload {
+                session: session.to_owned(),
+                local_path: local_path.to_owned(),
+                remote_path: remote_path.to_owned(),
+            }
+        }
+        "download" => {
+            let Some(session) = arguments.get("session").and_then(Value::as_str) else {
+                return ToolCall::Protocol("download needs a session".into());
+            };
+            let Some(remote_path) = arguments.get("remote_path").and_then(Value::as_str) else {
+                return ToolCall::Protocol("download needs a remote_path".into());
+            };
+            let Some(local_path) = arguments.get("local_path").and_then(Value::as_str) else {
+                return ToolCall::Protocol("download needs a local_path".into());
+            };
+            Op::Download {
+                session: session.to_owned(),
+                remote_path: remote_path.to_owned(),
+                local_path: local_path.to_owned(),
+            }
+        }
+        "sessions" => Op::Sessions,
+        "audit_tail" => Op::AuditTail {
+            lines: arguments
+                .get("lines")
+                .and_then(Value::as_u64)
+                .map(|n| n as usize),
+        },
         "close" => {
             let Some(session) = arguments.get("session").and_then(Value::as_str) else {
                 return ToolCall::Protocol("close needs a session".into());
@@ -355,10 +453,10 @@ fn error_response(id: Value, code: i64, message: &str) -> Value {
 /// process's life: broker sessions are per-connection, so reconnecting
 /// would strand every open session.
 struct BrokerClient {
-    /// The socket to use; `None` resolves the app's candidates lazily.
-    socket: Option<PathBuf>,
-    reader: Option<BufReader<UnixStream>>,
-    writer: Option<UnixStream>,
+    /// The endpoint to use; `None` resolves the app's candidates lazily.
+    socket: Option<transport::Endpoint>,
+    reader: Option<BufReader<BlockingStream>>,
+    writer: Option<BlockingStream>,
     next_id: u64,
 }
 
@@ -372,11 +470,11 @@ impl BrokerClient {
         }
     }
 
-    /// A client pinned to one socket path, so failure is deterministic
+    /// A client pinned to one endpoint, so failure is deterministic
     /// wherever a test runs. Tests only: the live client always
     /// resolves the app's own candidates.
     #[cfg(test)]
-    fn pinned(socket: PathBuf) -> Self {
+    fn pinned(socket: transport::Endpoint) -> Self {
         Self {
             socket: Some(socket),
             reader: None,
@@ -418,13 +516,12 @@ impl BrokerClient {
     }
 
     fn connect(&mut self) -> std::io::Result<()> {
-        let path = match self.socket.clone() {
-            Some(path) => path,
-            None => server::client_socket_path().ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::NotFound, "no agent socket")
-            })?,
+        let endpoint = match self.socket.clone() {
+            Some(endpoint) => endpoint,
+            None => transport::client_endpoint()
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e))?,
         };
-        let stream = UnixStream::connect(path)?;
+        let stream = transport::connect_blocking(&endpoint)?;
         self.writer = Some(stream.try_clone()?);
         self.reader = Some(BufReader::new(stream));
         Ok(())
@@ -435,10 +532,17 @@ impl BrokerClient {
 mod tests {
     use super::*;
 
-    /// Pinned to a path that cannot exist, so every call fails the same
+    /// Pinned to an endpoint that cannot exist, so every call fails the same
     /// way on every machine.
     fn dead_broker() -> BrokerClient {
-        BrokerClient::pinned(PathBuf::from("/nonexistent/cl2metal-mcp-test"))
+        #[cfg(unix)]
+        let endpoint =
+            transport::Endpoint::Unix(std::path::PathBuf::from("/nonexistent/cl2metal-mcp-test"));
+        #[cfg(windows)]
+        let endpoint = transport::Endpoint::Windows(
+            r"\\.\pipe\cl2metal-mcp-test-does-not-exist".to_owned(),
+        );
+        BrokerClient::pinned(endpoint)
     }
 
     #[test]
@@ -472,7 +576,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_names_the_four_broker_ops() {
+    fn tools_list_names_every_broker_op() {
         let mut broker = dead_broker();
         let response = handle_line(
             &mut broker,
@@ -485,11 +589,39 @@ mod tests {
             .iter()
             .map(|tool| tool["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, vec!["list_profiles", "connect", "exec", "close"]);
+        assert_eq!(
+            names,
+            vec![
+                "list_profiles",
+                "connect",
+                "exec",
+                "upload",
+                "download",
+                "sessions",
+                "audit_tail",
+                "close"
+            ]
+        );
         for tool in response["result"]["tools"].as_array().unwrap() {
             assert_eq!(tool["inputSchema"]["type"], "object");
             assert!(tool["description"].as_str().is_some_and(|d| !d.is_empty()));
         }
+        // The read-only tools carry the MCP annotation; the writing ones
+        // carry the destructive hint.
+        let by_name = |name: &str| {
+            response["result"]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tool| tool["name"] == name)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(by_name("list_profiles")["annotations"]["readOnlyHint"], true);
+        assert_eq!(by_name("sessions")["annotations"]["readOnlyHint"], true);
+        assert_eq!(by_name("audit_tail")["annotations"]["readOnlyHint"], true);
+        assert_eq!(by_name("upload")["annotations"]["destructiveHint"], true);
+        assert_eq!(by_name("download")["annotations"]["destructiveHint"], true);
     }
 
     #[test]
@@ -544,6 +676,30 @@ mod tests {
     }
 
     #[test]
+    fn transfer_tools_name_the_missing_argument() {
+        let mut broker = dead_broker();
+        let line = r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"upload","arguments":{"session":"s_0123456789ab"}}}"#;
+        let response = handle_line(&mut broker, line).expect("answered");
+        assert_eq!(response["error"]["code"], json!(-32602));
+        assert!(
+            response["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("local_path")
+        );
+
+        let line = r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"download","arguments":{"session":"s_0123456789ab","remote_path":"/root/a"}}}"#;
+        let response = handle_line(&mut broker, line).expect("answered");
+        assert_eq!(response["error"]["code"], json!(-32602));
+        assert!(
+            response["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("local_path")
+        );
+    }
+
+    #[test]
     fn garbage_lines_answer_as_parse_errors() {
         let mut broker = dead_broker();
         let response = handle_line(&mut broker, "not json").expect("answered");
@@ -579,6 +735,11 @@ mod tests {
         assert!(SKILL_MD.contains(":mcp-on"), "the registration command");
         // The skill must teach the availability check the user asked for.
         assert!(SKILL_MD.contains("list_profiles"));
+        // The transfer and inspection tools are part of the contract.
+        assert!(SKILL_MD.contains("upload"));
+        assert!(SKILL_MD.contains("download"));
+        assert!(SKILL_MD.contains("sessions"));
+        assert!(SKILL_MD.contains("audit_tail"));
         // And the command screening the user asked for.
         assert!(
             SKILL_MD.contains("Allow all future commands"),

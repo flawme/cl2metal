@@ -30,6 +30,36 @@ pub(crate) struct ExecOutcome {
     pub stderr: String,
 }
 
+/// Which way a file transfer goes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum FileDirection {
+    /// Local file -> remote host.
+    Upload,
+    /// Remote host -> local file.
+    Download,
+}
+
+/// One file transfer, queued to a session thread.
+pub(crate) struct FileJob {
+    pub direction: FileDirection,
+    pub local_path: String,
+    pub remote_path: String,
+    pub reply: tokio::sync::oneshot::Sender<Result<FileOutcome, String>>,
+}
+
+/// What one file transfer returns.
+#[derive(Debug, PartialEq)]
+pub(crate) struct FileOutcome {
+    pub bytes: u64,
+    pub sha256: String,
+}
+
+/// One queued job: the session thread serves execs and transfers in order.
+enum Job {
+    Exec(ExecJob),
+    File(FileJob),
+}
+
 /// Events a headless session reports to its owner.
 pub(crate) enum SessionEvent {
     /// The connection needs a human answer (host key, password, MFA) —
@@ -45,9 +75,9 @@ pub(crate) enum SessionEvent {
 
 /// The broker-side handle to one headless session. The broker keys its
 /// map by session id and derives its own display names; the handle is
-/// only the exec queue.
+/// only the job queue.
 pub(crate) struct AgentSession {
-    exec_tx: flume::Sender<ExecJob>,
+    job_tx: flume::Sender<Job>,
 }
 
 impl AgentSession {
@@ -58,12 +88,48 @@ impl AgentSession {
         timeout: Duration,
     ) -> Option<tokio::sync::oneshot::Receiver<Result<ExecOutcome, String>>> {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        self.exec_tx
-            .send(ExecJob {
+        self.job_tx
+            .send(Job::Exec(ExecJob {
                 command,
                 timeout,
                 reply: tx,
-            })
+            }))
+            .ok()
+            .map(|()| rx)
+    }
+
+    /// Queue one upload; `None` when the session thread is already gone.
+    pub fn upload(
+        &self,
+        local_path: String,
+        remote_path: String,
+    ) -> Option<tokio::sync::oneshot::Receiver<Result<FileOutcome, String>>> {
+        self.enqueue_file(FileDirection::Upload, local_path, remote_path)
+    }
+
+    /// Queue one download; `None` when the session thread is already gone.
+    pub fn download(
+        &self,
+        remote_path: String,
+        local_path: String,
+    ) -> Option<tokio::sync::oneshot::Receiver<Result<FileOutcome, String>>> {
+        self.enqueue_file(FileDirection::Download, local_path, remote_path)
+    }
+
+    fn enqueue_file(
+        &self,
+        direction: FileDirection,
+        local_path: String,
+        remote_path: String,
+    ) -> Option<tokio::sync::oneshot::Receiver<Result<FileOutcome, String>>> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.job_tx
+            .send(Job::File(FileJob {
+                direction,
+                local_path,
+                remote_path,
+                reply: tx,
+            }))
             .ok()
             .map(|()| rx)
     }
@@ -98,7 +164,7 @@ pub(crate) fn spawn(
     AgentSession,
     tokio::sync::oneshot::Receiver<Result<(), String>>,
 ) {
-    let (exec_tx, exec_rx) = flume::unbounded::<ExecJob>();
+    let (job_tx, job_rx) = flume::unbounded::<Job>();
     let (msg_tx, msg_rx) = flume::unbounded::<SessionMsg>();
     // The UI wakes on every event, like every other backend message.
     let msg_tx = crate::term::MsgTx::new(msg_tx, wake.clone());
@@ -160,10 +226,18 @@ pub(crate) fn spawn(
                         return;
                     }
                 };
-                // Serve execs until the broker drops the handle.
-                while let Ok(job) = exec_rx.recv_async().await {
-                    let outcome = exec_one(&conn.handle, &job).await;
-                    let _ = job.reply.send(outcome);
+                // Serve jobs until the broker drops the handle.
+                while let Ok(job) = job_rx.recv_async().await {
+                    match job {
+                        Job::Exec(job) => {
+                            let outcome = exec_one(&conn.handle, &job).await;
+                            let _ = job.reply.send(outcome);
+                        }
+                        Job::File(job) => {
+                            let outcome = file_one(&conn.handle, &job).await;
+                            let _ = job.reply.send(outcome);
+                        }
+                    }
                 }
                 let _ = conn
                     .handle
@@ -177,7 +251,7 @@ pub(crate) fn spawn(
         })
         .expect("spawn the agent session thread");
 
-    (AgentSession { exec_tx }, outcome_rx)
+    (AgentSession { job_tx }, outcome_rx)
 }
 
 /// Report a connect failure on both channels (event for the UI toast and
@@ -240,6 +314,79 @@ async fn exec_one(
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
         stderr: String::from_utf8_lossy(&stderr).into_owned(),
     })
+}
+
+/// Run one file transfer over an SFTP subsystem channel on the existing
+/// authenticated connection. The whole file is buffered (capped at
+/// [`protocol::MAX_TRANSFER_BYTES`]) so the sha256 covers exactly the bytes
+/// that crossed the wire.
+async fn file_one(
+    handle: &russh::client::Handle<Client>,
+    job: &FileJob,
+) -> Result<FileOutcome, String> {
+    let channel = handle
+        .channel_open_session()
+        .await
+        .map_err(|e| format!("connection lost: {e}"))?;
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .map_err(|e| format!("sftp subsystem rejected: {e}"))?;
+    let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
+        .await
+        .map_err(|e| format!("sftp handshake: {e}"))?;
+
+    match job.direction {
+        FileDirection::Upload => {
+            let data = tokio::fs::read(&job.local_path)
+                .await
+                .map_err(|e| format!("read {}: {e}", job.local_path))?;
+            if data.len() as u64 > super::protocol::MAX_TRANSFER_BYTES {
+                return Err(format!(
+                    "file too large ({} bytes; cap {} bytes)",
+                    data.len(),
+                    super::protocol::MAX_TRANSFER_BYTES
+                ));
+            }
+            let sha256 = sha256_hex(&data);
+            sftp.write(&job.remote_path, &data)
+                .await
+                .map_err(|e| format!("write {}: {e}", job.remote_path))?;
+            Ok(FileOutcome {
+                bytes: data.len() as u64,
+                sha256,
+            })
+        }
+        FileDirection::Download => {
+            let data = sftp
+                .read(&job.remote_path)
+                .await
+                .map_err(|e| format!("read {}: {e}", job.remote_path))?;
+            if data.len() as u64 > super::protocol::MAX_TRANSFER_BYTES {
+                return Err(format!(
+                    "file too large ({} bytes; cap {} bytes)",
+                    data.len(),
+                    super::protocol::MAX_TRANSFER_BYTES
+                ));
+            }
+            let sha256 = sha256_hex(&data);
+            tokio::fs::write(&job.local_path, &data)
+                .await
+                .map_err(|e| format!("write {}: {e}", job.local_path))?;
+            Ok(FileOutcome {
+                bytes: data.len() as u64,
+                sha256,
+            })
+        }
+    }
+}
+
+/// Lower-case hex sha256 of the transferred bytes.
+fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]
