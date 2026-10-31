@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "cl2metal"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "ab_glyph",
  "alacritty_terminal",

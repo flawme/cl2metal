@@ -82,7 +82,9 @@ in the running app:
 
 - **Local only.** A unix-domain socket under `$XDG_RUNTIME_DIR` (with a `/tmp`
   fallback), accepting connections from your own user only, verified by peer
-  credentials. There is no network listener.
+  credentials. There is no network listener. Only one instance serves it: a
+  second window starts with agent access off rather than taking the socket
+  over, so the tools keep reaching the instance that owns it.
 - **Consent-gated.** Every `connect` pops an Allow / Deny dialog. Every
   command is screened: known read-only ones (`ls`, `cat` on a plain file,
   `git status`, …) run without asking; everything else pops an approval that
@@ -94,11 +96,12 @@ in the running app:
   the server into every agent host it finds on the machine — append and merge
   only, never touching a config it cannot parse.
 
-The tools it exposes are `list_profiles`, `connect`, `exec` and `close`. One
-"Allow all future commands" click covers the rest of that session. Both
-switches live in Settings → Security and default to on: *Let local coding
-agents use SSH profiles (MCP)* and *Approve agent commands before they run
-(read-only ones excepted)*.
+The tools it exposes are `list_profiles`, `connect`, `exec`, `upload`,
+`download`, `sessions`, `audit_tail` and `close`. One "Allow all future
+commands" click covers the rest of that session. Both switches live in
+Settings → Security and default to on: *Let local coding agents use SSH
+profiles (MCP)* and *Approve agent commands before they run (read-only ones
+excepted)*.
 
 `cl2metal mcp skill` prints the ready-to-use agent skill document.
 

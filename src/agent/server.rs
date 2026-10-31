@@ -278,6 +278,18 @@ mod broker {
                     bound = Some((listener, endpoint));
                     break;
                 }
+                // A live owner answered on this path: another cl2metal
+                // instance is already serving the broker. Do not fall
+                // through to a second socket — one broker per user keeps
+                // the consent UI and the audit log in a single place, and
+                // the MCP client keeps reaching the instance that owns it.
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                    log::warn!(
+                        "agent socket: {} is owned by another cl2metal instance; agent access is off for this run",
+                        endpoint.display()
+                    );
+                    return None;
+                }
                 Err(e) => log::warn!("agent socket: cannot bind {}: {e}", endpoint.display()),
             }
         }

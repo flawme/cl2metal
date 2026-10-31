@@ -10,7 +10,9 @@
 //! lives outside the runtime.
 
 use russh::ChannelMsg;
+use russh_sftp::protocol::OpenFlags;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 
 use crate::term::ssh::{Client, SshParams, connect_only};
 use crate::term::{SessionMsg, SshRequest, Waker};
@@ -349,9 +351,23 @@ async fn file_one(
                 ));
             }
             let sha256 = sha256_hex(&data);
-            sftp.write(&job.remote_path, &data)
+            // SftpSession::write opens with OpenFlags::WRITE only: no
+            // CREATE, so a new remote path failed with ENOENT ("write
+            // /root/hello.txt: No such file"), and no TRUNCATE, so
+            // overwriting a longer file would leave its tail behind.
+            let mut file = sftp
+                .open_with_flags(
+                    job.remote_path.clone(),
+                    OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
+                )
+                .await
+                .map_err(|e| format!("open {}: {e}", job.remote_path))?;
+            file.write_all(&data)
                 .await
                 .map_err(|e| format!("write {}: {e}", job.remote_path))?;
+            file.close()
+                .await
+                .map_err(|e| format!("close {}: {e}", job.remote_path))?;
             Ok(FileOutcome {
                 bytes: data.len() as u64,
                 sha256,

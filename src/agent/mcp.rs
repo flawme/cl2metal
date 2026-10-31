@@ -77,14 +77,19 @@ command is written to the user's local audit log.
 
 ## Availability
 
-`list_profiles` is the health check. It only works while both hold:
+`list_profiles` is the health check. It only works while all of these hold:
 
 1. the cl2metal app is running, and
 2. Settings -> Security -> "Let local coding agents use SSH profiles
-   (MCP)" is on.
+   (MCP)" is on, and
+3. that instance owns the broker socket. Only one cl2metal instance
+   serves the broker: a second window starts with agent access off
+   instead of taking the socket over, so the tools keep reaching the
+   instance that owns it.
 
-If the tool errors, report exactly that — agent access is off or the
-app is not running — and stop. Do not retry in a loop.
+If the tool errors, report exactly that — agent access is off, the app
+is not running, or another instance owns the broker — and stop. Do not
+retry in a loop.
 
 ## The tools
 

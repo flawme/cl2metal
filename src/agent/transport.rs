@@ -151,14 +151,35 @@ impl Listener {
     }
 }
 
-/// Bind an endpoint. Unix removes a stale socket file first (this process is
-/// the only one that can own the name); Windows creates the first pipe
-/// instance with `first_pipe_instance` so a squatter cannot win the name.
+/// Bind an endpoint. On Unix a stale socket file is replaced, but a LIVE one
+/// is never stolen: a second instance used to unlink the path and bind its
+/// own socket, orphaning the first instance's listener so every client got
+/// ECONNREFUSED once the second exited. A connect that succeeds proves a
+/// live owner; only a refused or missing path is stale and safe to replace.
+/// Windows creates the first pipe instance with `first_pipe_instance` so a
+/// squatter cannot win the name.
 pub fn bind(endpoint: &Endpoint) -> io::Result<Listener> {
     match endpoint {
         #[cfg(unix)]
         Endpoint::Unix(path) => {
-            let _ = std::fs::remove_file(path);
+            if path.exists() {
+                match std::os::unix::net::UnixStream::connect(path) {
+                    Ok(_) => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::AddrInUse,
+                            format!(
+                                "{} is already served by another cl2metal instance",
+                                path.display()
+                            ),
+                        ));
+                    }
+                    // Nobody is listening: the file is a leftover from a
+                    // process that exited without cleaning up.
+                    Err(_) => {
+                        let _ = std::fs::remove_file(path);
+                    }
+                }
+            }
             let listener =
                 crate::term::runtime().block_on(async { tokio::net::UnixListener::bind(path) })?;
             use std::os::unix::fs::PermissionsExt as _;
@@ -494,6 +515,40 @@ mod tests {
             // The /tmp fallback is always last.
             assert!(list.last().unwrap().display().contains("cl2metal-agent-"));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bind_refuses_a_live_socket() {
+        let dir = std::env::temp_dir().join(format!("cl2metal-live-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("sock");
+        let first = bind(&Endpoint::Unix(path.clone())).expect("first bind");
+        // A second instance must not steal the name from a live listener:
+        // doing so orphaned the first instance's socket in the field, so
+        // every client got ECONNREFUSED once the second instance exited.
+        let err = match bind(&Endpoint::Unix(path.clone())) {
+            Ok(_) => panic!("second bind must be refused"),
+            Err(e) => e,
+        };
+        assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse, "got {err}");
+        drop(first);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bind_replaces_a_stale_socket_file() {
+        let dir = std::env::temp_dir().join(format!("cl2metal-stale-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("sock");
+        std::fs::write(&path, b"leftover").expect("write stale file");
+        let listener = bind(&Endpoint::Unix(path.clone())).expect("bind over a stale file");
+        assert!(path.exists(), "the bound socket file exists");
+        drop(listener);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
